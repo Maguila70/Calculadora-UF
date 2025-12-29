@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v8";
+const STORAGE_KEY = "uf-pocket:state:v9";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -281,6 +281,21 @@ async function idbCountUF() {
 }
 async function idbHasDate(dateISO) { return !!(await idbGet("uf", dateISO)); }
 async function idbGetUF(dateISO) { return (await idbGet("uf", dateISO))?.value ?? null; }
+
+async function idbSetMeta(key, value) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("meta", "readwrite");
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("meta").put({ key, value });
+  });
+}
+async function idbGetMeta(key) {
+  const row = await idbGet("meta", key);
+  return row ? row.value : null;
+}
+
 async function idbGetMinMaxDates() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -340,12 +355,14 @@ async function fetchUFYear(year) {
 
 /* ---------- Smooth scroll ease-out ---------- */
 function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
-function animateScrollTo(container, target, duration = 320) {
+function animateScrollTo(container, target, duration = 220) {
+  const token = ++scrollAnimToken;
   const start = container.scrollLeft;
   const delta = target - start;
   const t0 = performance.now();
-  const d = Math.max(160, duration);
+  const d = Math.max(140, duration);
   function step(now){
+    if (token !== scrollAnimToken) return; // cancelled
     const t = Math.min(1, (now - t0) / d);
     container.scrollLeft = start + delta * easeOutCubic(t);
     if (t < 1) requestAnimationFrame(step);
@@ -403,6 +420,9 @@ function markSelected(dateISO) {
 function updateMonthLabel() { el("monthLabel").textContent = state.selectedDate ? formatMonthTitle(state.selectedDate) : "—"; }
 
 let railSnapTimer = null;
+let railPointerDown = false;
+let railSnapping = false;
+let scrollAnimToken = 0;
 function nearestChipToCenter() {
   const rail = el("dateRail");
   const railRect = rail.getBoundingClientRect();
@@ -419,12 +439,24 @@ function nearestChipToCenter() {
 function onRailScrollEndSnap() {
   clearTimeout(railSnapTimer);
   railSnapTimer = setTimeout(() => {
+    if (railPointerDown || railSnapping) return;
+    const rail = el("dateRail");
     const best = nearestChipToCenter();
     if (!best) return;
     const dateISO = best.dataset.date;
-    centerChip(dateISO, { smooth: true });
+
+    // Only do a short snap if noticeably off-center, so it doesn't "keep running"
+    const railRect = rail.getBoundingClientRect();
+    const bestRect = best.getBoundingClientRect();
+    const dist = (bestRect.left + bestRect.width/2) - (railRect.left + railRect.width/2);
+
+    railSnapping = true;
+    if (Math.abs(dist) > 10) {
+      centerChip(dateISO, { smooth: true });
+    }
     if (dateISO !== state.selectedDate) setSelectedDate(dateISO, { userAction: true, fromRail: true });
-  }, 140);
+    setTimeout(() => { railSnapping = false; }, 260);
+  }, 240);
 }
 
 /* ---------- Header render ---------- */
@@ -631,32 +663,61 @@ async function bootstrapIfEmpty() {
   if ((await idbCountUF()) > 0) return;
 
   const startYear = 2010;
-  const endYear = new Date().getFullYear() + 1;
-  const total = (endYear - startYear + 1);
+  const currentYear = new Date().getFullYear();
+  const endYear = currentYear + 1; // cover 30 días hacia adelante si cruza año
+  const totalYears = (endYear - startYear + 1);
 
-  for (let i=0, y=startYear; y<=endYear; y++, i++) {
-    setSyncInline(`(Actualizando ${y}… ${Math.round(((i+1)/total)*100)}%)`);
-    try { await idbBulkPutUF(await fetchUFYear(y)); }
-    catch (e) { console.warn("bootstrap year error", y, e); }
+  let done = 0;
+  for (let y = startYear; y <= endYear; y++) {
+    const key = `year_done_${y}`;
+    const already = await idbGetMeta(key);
+    if (already) { done++; continue; }
+
+    setSyncInline(`(Actualizando ${y} ${Math.round(((done+1)/totalYears)*100)}%)`);
+    try {
+      const rows = await fetchUFYear(y);
+      await idbBulkPutUF(rows);
+      await idbSetMeta(key, true);
+    } catch (e) {
+      console.warn("bootstrap year error", y, e);
+    }
+    done++;
   }
+
   state.savedAt = new Date().toISOString();
   saveState();
   setSyncInline("(Base UF lista)");
 }
 async function syncFutureHorizon() {
   if (!navigator.onLine) return;
+
   const today = todayLocalISO();
-  const horizon = addDaysISO(today, 35);
+  const horizon = addDaysISO(today, 30);
+
   const mm = await idbGetMinMaxDates();
   if (mm.max && mm.max >= horizon) return;
 
-  const y1 = new Date().getFullYear();
-  const y2 = y1 + 1;
+  const start = (mm.max && mm.max > today) ? addDaysISO(mm.max, 1) : today;
 
-  setSyncInline(`(Actualizando ${y1})`);
-  try { await idbBulkPutUF(await fetchUFYear(y1)); } catch (e) { console.warn("sync year", y1, e); }
-  setSyncInline(`(Actualizando ${y2})`);
-  try { await idbBulkPutUF(await fetchUFYear(y2)); } catch (e) { console.warn("sync year", y2, e); }
+  // Build list of dates we might need (max 31)
+  const dates = [];
+  for (let d = start; d <= horizon; d = addDaysISO(d, 1)) dates.push(d);
+  const total = dates.length || 1;
+
+  let i = 0;
+  for (const d of dates) {
+    i++;
+    if (await idbHasDate(d)) continue;
+
+    setSyncInline(`(Actualizando ${d.slice(0,4)} ${Math.round((i/total)*100)}%)`);
+    try {
+      const row = await fetchUFForDate(d);
+      await idbBulkPutUF([row]);
+    } catch (e) {
+      // Es normal que algunos días futuros aún no existan en la API
+      console.warn("future uf missing", d, e);
+    }
+  }
 
   state.savedAt = new Date().toISOString();
   saveState();
@@ -665,15 +726,31 @@ async function syncFutureHorizon() {
 async function ensureOfflineRangeForDate(dateISO) {
   if (!navigator.onLine) return;
   const y = Number(dateISO.slice(0,4));
+  const years = [y - 1, y];
 
-  setSyncInline(`(Actualizando ${y-1})`);
-  try { await idbBulkPutUF(await fetchUFYear(y - 1)); } catch (e) { console.warn("prev year fail", y-1, e); }
+  // Si ya existe el valor exacto, no lo volvemos a bajar (UF histórica no cambia)
+  const hasExact = await idbHasDate(dateISO);
 
-  setSyncInline(`(Actualizando ${y})`);
-  try { await idbBulkPutUF(await fetchUFYear(y)); } catch (e) { console.warn("year fail", y, e); }
+  for (const yy of years) {
+    if (yy < 2010) continue;
+    const key = `year_done_${yy}`;
+    const already = await idbGetMeta(key);
+    if (already) continue;
 
-  setSyncInline(`(Actualizando ${dateISO})`);
-  try { await idbBulkPutUF([await fetchUFForDate(dateISO)]); } catch {}
+    setSyncInline(`(Actualizando ${yy})`);
+    try {
+      const rows = await fetchUFYear(yy);
+      await idbBulkPutUF(rows);
+      await idbSetMeta(key, true);
+    } catch (e) {
+      console.warn("year fetch fail", yy, e);
+    }
+  }
+
+  if (!hasExact) {
+    setSyncInline(`(Actualizando ${dateISO})`);
+    try { await idbBulkPutUF([await fetchUFForDate(dateISO)]); } catch (e) { console.warn("date fetch fail", dateISO, e); }
+  }
 
   state.savedAt = new Date().toISOString();
   saveState();
@@ -710,7 +787,8 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
       }
     } else {
       await ensureOfflineRangeForDate(dateISO);
-      await syncFutureHorizon();
+      // ONLY_SYNC_FUTURE_WHEN_TODAY
+      if (dateISO === todayLocalISO()) await syncFutureHorizon();
     }
   }
 
@@ -765,7 +843,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=8"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=9"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -801,13 +879,19 @@ function wire() {
   el(fieldWrapId("CLP")).addEventListener("click", () => setActive("CLP"));
 
   // Date rail
-  el("dateRail").addEventListener("scroll", onRailScrollEndSnap, { passive: true });
-    el("todayBtn").addEventListener("click", async () => {
+  const rail = el("dateRail");
+  rail.addEventListener("scroll", onRailScrollEndSnap, { passive: true });
+  rail.addEventListener("pointerdown", () => { railPointerDown = true; scrollAnimToken++; }, { passive: true });
+  const endDrag = () => { railPointerDown = false; onRailScrollEndSnap(); };
+  rail.addEventListener("pointerup", endDrag, { passive: true });
+  rail.addEventListener("pointercancel", endDrag, { passive: true });
+  rail.addEventListener("pointerleave", endDrag, { passive: true });
+  el("todayBtn").addEventListener("click", async () => {
     const t = todayLocalISO();
     await setSelectedDate(t, { userAction: true, fromRail: false });
   });
 
-el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
+  el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
   el("dateInput").addEventListener("change", async () => {
     const v = el("dateInput").value;
     if (!v) return;
@@ -886,7 +970,7 @@ el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker
   loadState();
   setNetState();
 
-  LIMITS.max = addDaysISO(todayLocalISO(), 40);
+  LIMITS.max = addDaysISO(todayLocalISO(), 30);
   el("dateInput").min = LIMITS.min;
   el("dateInput").max = LIMITS.max;
 
