@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v12";
+const STORAGE_KEY = "uf-pocket:state:v13";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -692,11 +692,11 @@ async function syncFutureHorizon() {
   if (!navigator.onLine) return;
 
   const today = todayLocalISO();
-  const horizonWanted = addDaysISO(today, 30);
+  const publishedMax = publishedMaxDateISO(today);
 
-  // If we've already discovered the last available future date, don't probe beyond it
-  const knownMax = await idbGetMeta("future_known_max"); // YYYY-MM-DD or null
-  const horizon = knownMax && knownMax < horizonWanted ? knownMax : horizonWanted;
+  // Si ya descubrimos el último día disponible, no ir más allá.
+  const knownMax = await idbGetMeta("future_known_max");
+  const horizon = knownMax ? knownMax : publishedMax;
 
   const mm = await idbGetMinMaxDates();
   if (mm.max && mm.max >= horizon) return;
@@ -704,18 +704,12 @@ async function syncFutureHorizon() {
   const start = (mm.max && mm.max > today) ? addDaysISO(mm.max, 1) : today;
 
   const dates = [];
-  for (let d = start; d <= horizonWanted; d = addDaysISO(d, 1)) {
-    // If knownMax exists, never go beyond it
-    if (knownMax && d > knownMax) break;
-    dates.push(d);
-  }
-
+  for (let d = start; d <= horizon; d = addDaysISO(d, 1)) dates.push(d);
   const total = dates.length || 1;
   let i = 0;
 
   for (const d of dates) {
     i++;
-
     if (await idbHasDate(d)) continue;
 
     setSyncInline(`(Actualizando ${d.slice(0,4)} ${Math.round((i/total)*100)}%)`);
@@ -723,11 +717,10 @@ async function syncFutureHorizon() {
       const row = await fetchUFForDate(d);
       await idbBulkPutUF([row]);
     } catch (e) {
-      // Si no hay datos para un día futuro, asumimos que desde ese punto NO hay más UF publicada.
+      // Si falla en futuro (d > today), asumimos que no hay más publicado por ahora.
       if (d > today) {
         const lastOk = addDaysISO(d, -1);
         await idbSetMeta("future_known_max", lastOk);
-        console.warn("future uf not available, stop probing at", lastOk, e);
         break;
       }
     }
@@ -791,14 +784,7 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
 
   if (userAction) {
     if (!navigator.onLine) {
-      if (!(await idbHasDate(dateISO))) {
-        showAlert(
-          "Fuera de rango sin conexión",
-          "No tengo guardado el valor UF para esa fecha. Conéctate a internet y vuelve a intentarlo; descargaré esa fecha y 1 año previo para dejarlo offline."
-        );
-        if (prev) setSelectedDate(prev, { userAction: false, fromRail: false });
-        return;
-      }
+      // Si no hay cache para esa fecha, no mostramos diálogo: simplemente no habrá UF para ese día.
     } else {
       // FUTURE_MAX_GUARD
       const today = todayLocalISO();
@@ -809,7 +795,7 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
         await ensureOfflineRangeForDate(dateISO);
       }
       // ONLY_SYNC_FUTURE_WHEN_TODAY
-      if (dateISO === today) await syncFutureHorizon();
+      if (dateISO === todayLocalISO()) await syncFutureHorizon();
     }
   }
 
@@ -864,7 +850,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=12"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=13"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -991,7 +977,7 @@ function wire() {
   loadState();
   setNetState();
 
-  LIMITS.max = addDaysISO(todayLocalISO(), 30);
+  LIMITS.max = publishedMaxDateISO(todayLocalISO());
   el("dateInput").min = LIMITS.min;
   el("dateInput").max = LIMITS.max;
 
@@ -1030,3 +1016,24 @@ function wire() {
   setupInstallUI();
   registerSW();
 })();
+function publishedMaxDateISO(todayISO) {
+  // Según práctica: el BC publica valores desde el día 10 del mes hasta el día 9 del mes siguiente.
+  const d = new Date(todayISO + "T00:00:00");
+  const day = d.getDate();
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0-11
+  const target = new Date(d);
+  if (day >= 10) {
+    // 9 del mes siguiente
+    target.setMonth(m + 1, 9);
+  } else {
+    // 9 del mes actual
+    target.setMonth(m, 9);
+  }
+  const yyyy = target.getFullYear();
+  const mm = String(target.getMonth() + 1).padStart(2, "0");
+  const dd = String(target.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+
