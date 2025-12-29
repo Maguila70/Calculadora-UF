@@ -1,5 +1,5 @@
 /* UF Pocket service worker: cachea assets para offline */
-const CACHE_NAME = "uf-pocket-v4";
+const CACHE_NAME = "uf-pocket-v5";
 const ASSETS = [
   "./",
   "./index.html",

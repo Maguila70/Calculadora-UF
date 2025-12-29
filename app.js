@@ -1,5 +1,5 @@
-/* UF Pocket – compact date rail + offline cache (IndexedDB) + inline sync status + PWA install */
-const STORAGE_KEY = "uf-pocket:state:v4";
+/* UF Pocket – compact date rail + offline cache (IndexedDB) + inline sync status + smart input formatting */
+const STORAGE_KEY = "uf-pocket:state:v5";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -14,6 +14,7 @@ const state = {
 
 let deferredInstallPrompt = null;
 let dbPromise = null;
+let currentUF = null; // numeric UF value for selected date (manual override or DB)
 
 const LIMITS = { min: "2010-01-01", max: null };
 
@@ -41,25 +42,142 @@ function isoToDMY(iso) {
   const [y,m,d] = iso.split("-");
   return `${d}-${m}-${y}`;
 }
-function parseNumberLoose(input) {
-  if (!input) return null;
-  const s = String(input).trim().replace(/\s+/g, "").replace(/\./g, "").replace(/,/g, ".");
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
+
+/* ---------- Number parsing & formatting ---------- */
+/* Accepts inputs like:
+   - "1234" "1.234" "$ 1.234" "$1.234,56" "39.716,44" "39,716.44" etc.
+   Strategy: keep only digits and separators, decide decimal separator as LAST occurrence of ',' or '.'
+   (If only one separator and there are 3 digits after, treat as thousands, not decimal).
+*/
+function parseFlexibleNumber(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim();
+  if (!s) return null;
+  s = s.replace(/\s+/g, "");
+  s = s.replace(/[^\d.,-]/g, ""); // remove $, UF, etc.
+  if (!s) return null;
+
+  const neg = s.startsWith("-");
+  s = s.replace(/-/g, "");
+  if (!s) return null;
+
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  let decSep = null;
+
+  if (lastComma === -1 && lastDot === -1) {
+    decSep = null;
+  } else {
+    decSep = lastComma > lastDot ? "," : ".";
+  }
+
+  let intPart = s;
+  let decPart = "";
+
+  if (decSep) {
+    const idx = s.lastIndexOf(decSep);
+    intPart = s.slice(0, idx);
+    decPart = s.slice(idx + 1);
+
+    const onlyOneSep = (s.split(",").length - 1) + (s.split(".").length - 1) === 1;
+    if (onlyOneSep && decPart.length === 3) {
+      intPart = (intPart + decPart);
+      decPart = "";
+      decSep = null;
+    }
+  }
+
+  intPart = intPart.replace(/[.,]/g, "");
+  decPart = decPart.replace(/[.,]/g, "");
+
+  if (!intPart) intPart = "0";
+
+  const numStr = decPart ? `${intPart}.${decPart}` : intPart;
+  const n = Number(numStr);
+  if (!Number.isFinite(n)) return null;
+  return neg ? -n : n;
 }
-function formatCLP(n) {
-  if (!Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
+
+function formatGroupedInt(intStr) {
+  const chars = intStr.split("");
+  let out = "";
+  let count = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    out = chars[i] + out;
+    count++;
+    if (count === 3 && i !== 0) {
+      out = "." + out;
+      count = 0;
+    }
+  }
+  return out;
 }
-function formatUF(n) {
-  if (!Number.isFinite(n)) return "—";
+
+function extractEditParts(raw) {
+  let s = String(raw ?? "").trim().replace(/\s+/g, "");
+  s = s.replace(/[^\d.,]/g, "");
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  const sep = (lastComma === -1 && lastDot === -1) ? null : (lastComma > lastDot ? "," : ".");
+  let intPart = s;
+  let decPart = "";
+  if (sep) {
+    const idx = s.lastIndexOf(sep);
+    intPart = s.slice(0, idx);
+    decPart = s.slice(idx + 1);
+  }
+  intPart = intPart.replace(/[.,]/g, "");
+  decPart = decPart.replace(/[.,]/g, "");
+  return { sep, intPart: intPart || "0", decPart: decPart || "" };
+}
+
+function formatUFInputFromParts(parts) {
+  const intFmt = formatGroupedInt(parts.intPart);
+  const dec = parts.decPart.slice(0, 4);
+  if (parts.sep) return `${intFmt},${dec}`;
+  return intFmt;
+}
+
+function formatCLPInputFromParts(parts) {
+  const intFmt = formatGroupedInt(parts.intPart);
+  const dec = parts.decPart.slice(0, 2);
+  if (parts.sep) return `$ ${intFmt},${dec}`;
+  return `$ ${intFmt}`;
+}
+
+function formatNumberForModeFromRaw(raw, mode) {
+  const parts = extractEditParts(raw);
+  return (mode === "CLP_TO_UF") ? formatCLPInputFromParts(parts) : formatUFInputFromParts(parts);
+}
+
+function toUFString(n) {
   return new Intl.NumberFormat("es-CL", { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(n);
 }
-function formatMonthTitle(dateISO) {
-  const d = new Date(dateISO + "T00:00:00");
-  const m = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
-  return m.charAt(0).toUpperCase() + m.slice(1);
+function toCLPString(n) {
+  return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
 }
+
+/* caret preservation: keep digit count before caret */
+function reformatInputKeepingCaret(inputEl, mode) {
+  const raw = inputEl.value;
+  const caret = inputEl.selectionStart ?? raw.length;
+
+  const left = raw.slice(0, caret);
+  const digitsLeft = (left.match(/\d/g) || []).length;
+
+  const formatted = formatNumberForModeFromRaw(raw, mode);
+  inputEl.value = formatted;
+
+  let pos = 0, seen = 0;
+  while (pos < formatted.length) {
+    if (/\d/.test(formatted[pos])) seen++;
+    if (seen >= digitsLeft) { pos++; break; }
+    pos++;
+  }
+  inputEl.setSelectionRange(pos, pos);
+}
+
+/* ---------- UI helpers ---------- */
 function setNetState() {
   const online = navigator.onLine;
   el("netState").textContent = online ? "Online" : "Offline";
@@ -83,11 +201,7 @@ function setSyncInline(text) {
   if (!box) return;
   box.textContent = text || "";
   if (syncTimer) clearTimeout(syncTimer);
-  if (text) {
-    syncTimer = setTimeout(() => {
-      box.textContent = "";
-    }, 2600);
-  }
+  if (text) syncTimer = setTimeout(() => { box.textContent = ""; }, 2600);
 }
 
 /* ---------- Alert modal ---------- */
@@ -222,7 +336,7 @@ async function fetchUFYear(year) {
 
 /* ---------- Smooth scroll ease-out ---------- */
 function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
-function animateScrollTo(container, target, duration = 360) {
+function animateScrollTo(container, target, duration = 320) {
   const start = container.scrollLeft;
   const delta = target - start;
   const t0 = performance.now();
@@ -241,7 +355,7 @@ function centerChip(dateISO, { smooth = true } = {}) {
   const railRect = rail.getBoundingClientRect();
   const chipRect = chip.getBoundingClientRect();
   const target = rail.scrollLeft + (chipRect.left - railRect.left) - (railRect.width/2 - chipRect.width/2);
-  if (smooth) animateScrollTo(rail, target, 320);
+  if (smooth) animateScrollTo(rail, target, 300);
   else rail.scrollLeft = target;
 }
 
@@ -251,6 +365,11 @@ function dayLabel(dateISO) {
   const dow = d.toLocaleDateString("es-CL", { weekday: "short" }).replace(".", "");
   const mon = d.toLocaleDateString("es-CL", { month: "short" }).replace(".", "");
   return { dow: dow.toUpperCase(), day: String(d.getDate()).padStart(2, "0"), mon: mon.toUpperCase() };
+}
+function formatMonthTitle(dateISO) {
+  const d = new Date(dateISO + "T00:00:00");
+  const m = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+  return m.charAt(0).toUpperCase() + m.slice(1);
 }
 function buildRail(centerISO) {
   const rail = el("dateRail");
@@ -309,26 +428,58 @@ function renderMode(mode) {
   el("modeUfToClp").classList.toggle("active", mode === "UF_TO_CLP");
   el("modeClpToUf").classList.toggle("active", mode === "CLP_TO_UF");
   el("inputLabel").textContent = mode === "UF_TO_CLP" ? "Monto en UF" : "Monto en pesos (CLP)";
+  el("amountInput").placeholder = mode === "UF_TO_CLP" ? "0" : "$ 0";
 }
+
 async function renderHeaderAndCompute() {
   const dateISO = state.selectedDate;
   el("ufDateLabel").textContent = dateISO ? `Fecha: ${new Date(dateISO + "T00:00:00").toLocaleDateString("es-CL")}` : "Fecha: —";
-  let uf = null;
-  if (state.ufManualOverride && Number.isFinite(state.ufManualOverride)) uf = state.ufManualOverride;
-  else if (dateISO) uf = await idbGetUF(dateISO);
-  el("ufValue").textContent = uf ? formatUF(uf) : "—";
+
+  if (state.ufManualOverride && Number.isFinite(state.ufManualOverride)) currentUF = state.ufManualOverride;
+  else if (dateISO) currentUF = await idbGetUF(dateISO);
+  else currentUF = null;
+
+  el("ufValue").textContent = currentUF ? toUFString(currentUF) : "—";
   el("savedAt").textContent = state.savedAt ? new Date(state.savedAt).toLocaleString("es-CL") : "—";
+
   const mm = await idbGetMinMaxDates();
   el("cachePill").textContent = (mm.min && mm.max) ? `Cache: ${mm.min} → ${mm.max}` : "Cache: —";
-  compute(uf);
+
+  computeLive();
 }
-function compute(ufOverride) {
-  const uf = ufOverride ?? null;
-  const amount = parseNumberLoose(el("amountInput").value);
-  if (!uf || !Number.isFinite(uf) || !Number.isFinite(amount)) { el("resultValue").textContent = "—"; return; }
-  el("resultValue").textContent = (state.mode === "UF_TO_CLP")
-    ? `$ ${formatCLP(amount * uf)}`
-    : `${formatUF(amount / uf)} UF`;
+
+function computeLive() {
+  const amount = parseFlexibleNumber(el("amountInput").value);
+  if (!currentUF || !Number.isFinite(currentUF) || !Number.isFinite(amount) || amount < 0) {
+    el("resultValue").textContent = "—";
+    return;
+  }
+  if (state.mode === "UF_TO_CLP") {
+    const clp = amount * currentUF;
+    el("resultValue").textContent = `$ ${toCLPString(clp)}`;
+  } else {
+    const uf = amount / currentUF;
+    el("resultValue").textContent = `${toUFString(uf)} UF`;
+  }
+}
+
+/* Switch mode: move previous result into input */
+function transferOnModeSwitch(oldMode, newMode) {
+  const amount = parseFlexibleNumber(el("amountInput").value);
+  if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(currentUF) || !currentUF) {
+    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, newMode);
+    return;
+  }
+
+  if (oldMode === "UF_TO_CLP" && newMode === "CLP_TO_UF") {
+    const clp = amount * currentUF;
+    el("amountInput").value = `$ ${toCLPString(clp)}`;
+  } else if (oldMode === "CLP_TO_UF" && newMode === "UF_TO_CLP") {
+    const uf = amount / currentUF;
+    el("amountInput").value = toUFString(uf);
+  } else {
+    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, newMode);
+  }
 }
 
 /* ---------- Sync rules (inline status) ---------- */
@@ -349,7 +500,6 @@ async function bootstrapIfEmpty() {
   saveState();
   setSyncInline("(Base UF lista)");
 }
-
 async function syncFutureHorizon() {
   if (!navigator.onLine) return;
   const today = todayLocalISO();
@@ -369,7 +519,6 @@ async function syncFutureHorizon() {
   saveState();
   setSyncInline("(Actualización lista)");
 }
-
 async function ensureOfflineRangeForDate(dateISO) {
   if (!navigator.onLine) return;
   const y = Number(dateISO.slice(0,4));
@@ -404,7 +553,6 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
   if (farJump || !fromRail) buildRail(dateISO);
   else { markSelected(dateISO); centerChip(dateISO, { smooth: userAction }); }
 
-  // keep native picker in sync
   el("dateInput").value = dateISO;
 
   if (userAction) {
@@ -430,7 +578,7 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
 function openModal() { el("ufManualInput").value = ""; el("modal").classList.remove("hidden"); }
 function closeModal() { el("modal").classList.add("hidden"); }
 function saveManualUF() {
-  const uf = parseNumberLoose(el("ufManualInput").value);
+  const uf = parseFlexibleNumber(el("ufManualInput").value);
   if (!Number.isFinite(uf) || uf <= 0) return toast("Ingresa un valor UF válido (ej: 39.716,44).");
   state.ufManualOverride = uf;
   saveState();
@@ -478,10 +626,41 @@ async function registerSW() {
 
 /* ---------- Events ---------- */
 function wire() {
-  el("modeUfToClp").addEventListener("click", () => { state.mode="UF_TO_CLP"; saveState(); renderMode(state.mode); compute(); });
-  el("modeClpToUf").addEventListener("click", () => { state.mode="CLP_TO_UF"; saveState(); renderMode(state.mode); compute(); });
+  el("modeUfToClp").addEventListener("click", () => {
+    const old = state.mode;
+    const next = "UF_TO_CLP";
+    if (old === next) return;
+    transferOnModeSwitch(old, next);
+    state.mode = next;
+    saveState();
+    renderMode(state.mode);
+    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, state.mode);
+    computeLive();
+  });
 
-  el("amountInput").addEventListener("input", () => compute());
+  el("modeClpToUf").addEventListener("click", () => {
+    const old = state.mode;
+    const next = "CLP_TO_UF";
+    if (old === next) return;
+    transferOnModeSwitch(old, next);
+    state.mode = next;
+    saveState();
+    renderMode(state.mode);
+    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, state.mode);
+    computeLive();
+  });
+
+  el("amountInput").addEventListener("input", () => {
+    reformatInputKeepingCaret(el("amountInput"), state.mode);
+    computeLive();
+  });
+
+  el("amountInput").addEventListener("focus", () => {
+    if (state.mode === "CLP_TO_UF" && !el("amountInput").value) {
+      el("amountInput").value = "$ ";
+      el("amountInput").setSelectionRange(el("amountInput").value.length, el("amountInput").value.length);
+    }
+  });
 
   el("refreshBtn").addEventListener("click", async () => {
     if (!navigator.onLine) return toast("Offline: no puedo actualizar.");
@@ -556,6 +735,8 @@ function wire() {
   updateMonthLabel();
   buildRail(initialDate);
 
+  el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, state.mode);
+
   if (navigator.onLine) {
     try {
       await bootstrapIfEmpty();
@@ -565,6 +746,7 @@ function wire() {
   }
 
   await setSelectedDate(initialDate, { userAction: false, fromRail: true });
+  await renderHeaderAndCompute();
 
   wire();
   setupInstallUI();
