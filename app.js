@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v13";
+const STORAGE_KEY = "uf-pocket:state:v14";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -209,10 +209,8 @@ function setSyncInline(text) {
 }
 
 /* ---------- Alert modal ---------- */
-function showAlert(title, text) {
-  el("alertTitle").textContent = title || "Aviso";
-  el("alertText").textContent = text || "";
-  el("alertModal").classList.remove("hidden");
+function
+        // (sin diálogo)
 }
 function closeAlert() { el("alertModal").classList.add("hidden"); }
 
@@ -790,8 +788,8 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
       const today = todayLocalISO();
       const knownMax = await idbGetMeta("future_known_max");
       if (dateISO > today && knownMax && dateISO > knownMax && !(await idbHasDate(dateISO))) {
-        showAlert("Aún no publicado", `No hay UF disponible en la web para esa fecha. Último día publicado: ${new Date(knownMax+"T00:00:00").toLocaleDateString("es-CL")}.`);
-      } else {
+        // (sin diálogo)
+} else {
         await ensureOfflineRangeForDate(dateISO);
       }
       // ONLY_SYNC_FUTURE_WHEN_TODAY
@@ -850,7 +848,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=13"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=14"); }
   catch (e) { console.warn("SW error", e); }
 }
 
