@@ -484,3 +484,16 @@ input{max-width:100%}
 .microRow{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}
 .copyFmt{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.62);user-select:none;white-space:nowrap}
 .copyFmt input{width:14px;height:14px;accent-color: rgba(127,240,200,.95)}
+
+
+/* ---- v21: nodata chips ---- */
+.chip.nodata{
+  opacity: .42;
+  filter: saturate(.75);
+}
+
+
+/* ---- v21: microRow + keypad spacing ---- */
+.copyFmt span{ font-size:10px; letter-spacing:.02em; opacity:.9 }
+.calcGrid{ gap:16px; }
+.keypadCol{ margin-left:12px; }
