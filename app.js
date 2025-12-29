@@ -1,5 +1,5 @@
-/* UF Pocket – date rail + offline cache (IndexedDB) + progress UI + PWA install */
-const STORAGE_KEY = "uf-pocket:state:v3";
+/* UF Pocket – compact date rail + offline cache (IndexedDB) + inline sync status + PWA install */
+const STORAGE_KEY = "uf-pocket:state:v4";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -15,10 +15,7 @@ const state = {
 let deferredInstallPrompt = null;
 let dbPromise = null;
 
-const LIMITS = {
-  min: "2010-01-01",
-  max: null, // computed as today+40
-};
+const LIMITS = { min: "2010-01-01", max: null };
 
 function todayLocalISO() {
   const d = new Date();
@@ -27,7 +24,6 @@ function todayLocalISO() {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
-
 function addDaysISO(iso, days) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
@@ -36,29 +32,21 @@ function addDaysISO(iso, days) {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
-
 function clampISO(iso) {
   if (iso < LIMITS.min) return LIMITS.min;
   if (LIMITS.max && iso > LIMITS.max) return LIMITS.max;
   return iso;
 }
-
 function isoToDMY(iso) {
   const [y,m,d] = iso.split("-");
   return `${d}-${m}-${y}`;
 }
-
 function parseNumberLoose(input) {
   if (!input) return null;
-  const s = String(input)
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/\./g, "")
-    .replace(/,/g, ".");
+  const s = String(input).trim().replace(/\s+/g, "").replace(/\./g, "").replace(/,/g, ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
-
 function formatCLP(n) {
   if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
@@ -70,49 +58,36 @@ function formatUF(n) {
 function formatMonthTitle(dateISO) {
   const d = new Date(dateISO + "T00:00:00");
   const m = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
-  // Capitalizar primera letra
   return m.charAt(0).toUpperCase() + m.slice(1);
 }
-
 function setNetState() {
   const online = navigator.onLine;
   el("netState").textContent = online ? "Online" : "Offline";
   el("netState").style.color = online ? "rgba(127,240,200,.90)" : "rgba(255,210,125,.90)";
 }
-
 function toast(msg) {
   const hint = el("hint");
   hint.textContent = msg;
   hint.style.color = "rgba(255,255,255,.82)";
   clearTimeout(toast._t);
   toast._t = setTimeout(() => {
-    hint.textContent = "Tip: desliza el carril para cambiar de fecha. Al estar online sincroniza y guarda valores para usar sin conexión.";
+    hint.textContent = "Tip: desliza el carril para cambiar de fecha.";
     hint.style.color = "";
-  }, 4200);
+  }, 3200);
 }
 
-/* ---------- Progress UI ---------- */
-let progressLock = 0;
-function showProgress(title, text) {
-  progressLock++;
-  el("syncTitle").textContent = title || "Actualizando…";
-  el("syncText").textContent = text || "—";
-  el("syncPct").textContent = "0%";
-  el("syncBar").style.width = "0%";
-  el("syncModal").classList.remove("hidden");
-}
-function setProgress(pct, text) {
-  const p = Math.max(0, Math.min(100, Math.round(pct)));
-  el("syncPct").textContent = `${p}%`;
-  el("syncBar").style.width = `${p}%`;
-  if (text) el("syncText").textContent = text;
-}
-function hideProgressSoon() {
-  // Small delay so the last frame is visible
-  setTimeout(() => {
-    progressLock = Math.max(0, progressLock - 1);
-    if (progressLock === 0) el("syncModal").classList.add("hidden");
-  }, 280);
+/* ---------- Inline sync status (non-blocking) ---------- */
+let syncTimer = null;
+function setSyncInline(text) {
+  const box = el("syncInline");
+  if (!box) return;
+  box.textContent = text || "";
+  if (syncTimer) clearTimeout(syncTimer);
+  if (text) {
+    syncTimer = setTimeout(() => {
+      box.textContent = "";
+    }, 2600);
+  }
 }
 
 /* ---------- Alert modal ---------- */
@@ -124,9 +99,7 @@ function showAlert(title, text) {
 function closeAlert() { el("alertModal").classList.add("hidden"); }
 
 /* ---------- State persistence ---------- */
-function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-}
+function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {} }
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -152,16 +125,13 @@ function openDB() {
         const store = db.createObjectStore("uf", { keyPath: "date" });
         store.createIndex("byDate", "date", { unique: true });
       }
-      if (!db.objectStoreNames.contains("meta")) {
-        db.createObjectStore("meta", { keyPath: "key" });
-      }
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
   return dbPromise;
 }
-
 async function idbGet(storeName, key) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -171,7 +141,6 @@ async function idbGet(storeName, key) {
     req.onerror = () => reject(req.error);
   });
 }
-
 async function idbBulkPutUF(rows) {
   if (!rows || !rows.length) return;
   const db = await openDB();
@@ -183,7 +152,6 @@ async function idbBulkPutUF(rows) {
     for (const r of rows) store.put(r);
   });
 }
-
 async function idbCountUF() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -193,17 +161,8 @@ async function idbCountUF() {
     req.onerror = () => reject(req.error);
   });
 }
-
-async function idbHasDate(dateISO) {
-  const row = await idbGet("uf", dateISO);
-  return !!row;
-}
-
-async function idbGetUF(dateISO) {
-  const row = await idbGet("uf", dateISO);
-  return row?.value ?? null;
-}
-
+async function idbHasDate(dateISO) { return !!(await idbGet("uf", dateISO)); }
+async function idbGetUF(dateISO) { return (await idbGet("uf", dateISO))?.value ?? null; }
 async function idbGetMinMaxDates() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -213,10 +172,8 @@ async function idbGetMinMaxDates() {
     const req = store.openCursor();
     req.onsuccess = () => {
       const cur = req.result;
-      if (cur) {
-        dates.push(cur.key);
-        cur.continue();
-      } else {
+      if (cur) { dates.push(cur.key); cur.continue(); }
+      else {
         if (!dates.length) return resolve({ min: null, max: null });
         dates.sort();
         resolve({ min: dates[0], max: dates[dates.length - 1] });
@@ -236,7 +193,6 @@ function mindicadorDateToISO(isoStr) {
   const dd = String(d.getUTCDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
-
 async function fetchUFForDate(dateISO) {
   const url = `https://mindicador.cl/api/uf/${isoToDMY(dateISO)}`;
   const res = await fetch(url, { cache: "no-store" });
@@ -247,7 +203,6 @@ async function fetchUFForDate(dateISO) {
   const gotISO = mindicadorDateToISO(s.fecha) || dateISO;
   return { date: gotISO, value: s.valor };
 }
-
 async function fetchUFYear(year) {
   const url = `https://mindicador.cl/api/uf/${year}`;
   const res = await fetch(url, { cache: "no-store" });
@@ -265,15 +220,13 @@ async function fetchUFYear(year) {
   return Array.from(map, ([date, value]) => ({ date, value }));
 }
 
-/* ---------- Smooth scroll (ease-out) ---------- */
+/* ---------- Smooth scroll ease-out ---------- */
 function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
-
-function animateScrollTo(container, target, duration = 420) {
+function animateScrollTo(container, target, duration = 360) {
   const start = container.scrollLeft;
   const delta = target - start;
   const t0 = performance.now();
-  const d = Math.max(180, duration);
-
+  const d = Math.max(160, duration);
   function step(now){
     const t = Math.min(1, (now - t0) / d);
     container.scrollLeft = start + delta * easeOutCubic(t);
@@ -281,36 +234,29 @@ function animateScrollTo(container, target, duration = 420) {
   }
   requestAnimationFrame(step);
 }
-
 function centerChip(dateISO, { smooth = true } = {}) {
   const rail = el("dateRail");
   const chip = rail.querySelector(`.chip[data-date="${dateISO}"]`);
   if (!chip) return;
-
   const railRect = rail.getBoundingClientRect();
   const chipRect = chip.getBoundingClientRect();
   const target = rail.scrollLeft + (chipRect.left - railRect.left) - (railRect.width/2 - chipRect.width/2);
-
-  if (smooth) animateScrollTo(rail, target, 380);
+  if (smooth) animateScrollTo(rail, target, 320);
   else rail.scrollLeft = target;
 }
 
-/* ---------- Date rail generation ---------- */
+/* ---------- Date rail ---------- */
 function dayLabel(dateISO) {
   const d = new Date(dateISO + "T00:00:00");
   const dow = d.toLocaleDateString("es-CL", { weekday: "short" }).replace(".", "");
   const mon = d.toLocaleDateString("es-CL", { month: "short" }).replace(".", "");
   return { dow: dow.toUpperCase(), day: String(d.getDate()).padStart(2, "0"), mon: mon.toUpperCase() };
 }
-
 function buildRail(centerISO) {
   const rail = el("dateRail");
   rail.innerHTML = "";
-
-  // Window: 31 días atrás + 31 adelante (63 chips)
   const start = clampISO(addDaysISO(centerISO, -31));
   const end = clampISO(addDaysISO(centerISO, 31));
-
   let cur = start;
   while (cur <= end) {
     const { dow, day, mon } = dayLabel(cur);
@@ -325,49 +271,35 @@ function buildRail(centerISO) {
     cur = addDaysISO(cur, 1);
   }
   markSelected(centerISO);
-  // Dejar centrado
   requestAnimationFrame(() => centerChip(centerISO, { smooth: false }));
 }
-
 function markSelected(dateISO) {
   const rail = el("dateRail");
   rail.querySelectorAll(".chip").forEach((c) => c.classList.toggle("selected", c.dataset.date === dateISO));
 }
+function updateMonthLabel() { el("monthLabel").textContent = state.selectedDate ? formatMonthTitle(state.selectedDate) : "—"; }
 
-function updateMonthLabel() {
-  el("monthLabel").textContent = state.selectedDate ? formatMonthTitle(state.selectedDate) : "—";
-}
-
-/* Cuando el usuario arrastra el carril, detectamos el chip más cercano al centro al terminar y lo seleccionamos.
-   (La “aceleración/desaceleración” se siente por el momentum nativo en móvil + el centrado suave al finalizar). */
 let railSnapTimer = null;
 function nearestChipToCenter() {
   const rail = el("dateRail");
   const railRect = rail.getBoundingClientRect();
   const cx = railRect.left + railRect.width/2;
-
-  let best = null;
-  let bestDist = Infinity;
-
+  let best = null, bestDist = Infinity;
   rail.querySelectorAll(".chip").forEach((chip) => {
     const r = chip.getBoundingClientRect();
     const cc = r.left + r.width/2;
     const dist = Math.abs(cc - cx);
     if (dist < bestDist) { bestDist = dist; best = chip; }
   });
-
   return best;
 }
-
 function onRailScrollEndSnap() {
   clearTimeout(railSnapTimer);
   railSnapTimer = setTimeout(() => {
     const best = nearestChipToCenter();
     if (!best) return;
     const dateISO = best.dataset.date;
-    // centrado suave
     centerChip(dateISO, { smooth: true });
-    // solo selecciona si cambió
     if (dateISO !== state.selectedDate) setSelectedDate(dateISO, { userAction: true, fromRail: true });
   }, 140);
 }
@@ -378,36 +310,28 @@ function renderMode(mode) {
   el("modeClpToUf").classList.toggle("active", mode === "CLP_TO_UF");
   el("inputLabel").textContent = mode === "UF_TO_CLP" ? "Monto en UF" : "Monto en pesos (CLP)";
 }
-
 async function renderHeaderAndCompute() {
   const dateISO = state.selectedDate;
   el("ufDateLabel").textContent = dateISO ? `Fecha: ${new Date(dateISO + "T00:00:00").toLocaleDateString("es-CL")}` : "Fecha: —";
-
   let uf = null;
   if (state.ufManualOverride && Number.isFinite(state.ufManualOverride)) uf = state.ufManualOverride;
   else if (dateISO) uf = await idbGetUF(dateISO);
-
   el("ufValue").textContent = uf ? formatUF(uf) : "—";
   el("savedAt").textContent = state.savedAt ? new Date(state.savedAt).toLocaleString("es-CL") : "—";
-
   const mm = await idbGetMinMaxDates();
   el("cachePill").textContent = (mm.min && mm.max) ? `Cache: ${mm.min} → ${mm.max}` : "Cache: —";
-
   compute(uf);
 }
-
 function compute(ufOverride) {
   const uf = ufOverride ?? null;
   const amount = parseNumberLoose(el("amountInput").value);
-  if (!uf || !Number.isFinite(uf) || !Number.isFinite(amount)) {
-    el("resultValue").textContent = "—";
-    return;
-  }
-  if (state.mode === "UF_TO_CLP") el("resultValue").textContent = `$ ${formatCLP(amount * uf)}`;
-  else el("resultValue").textContent = `${formatUF(amount / uf)} UF`;
+  if (!uf || !Number.isFinite(uf) || !Number.isFinite(amount)) { el("resultValue").textContent = "—"; return; }
+  el("resultValue").textContent = (state.mode === "UF_TO_CLP")
+    ? `$ ${formatCLP(amount * uf)}`
+    : `${formatUF(amount / uf)} UF`;
 }
 
-/* ---------- Sync rules + progress ---------- */
+/* ---------- Sync rules (inline status) ---------- */
 async function bootstrapIfEmpty() {
   if (!navigator.onLine) return;
   if ((await idbCountUF()) > 0) return;
@@ -416,85 +340,72 @@ async function bootstrapIfEmpty() {
   const endYear = new Date().getFullYear() + 1;
   const total = (endYear - startYear + 1);
 
-  showProgress("Inicializando base UF", "Descargando historial desde 2010…");
   for (let i=0, y=startYear; y<=endYear; y++, i++) {
-    try {
-      const rows = await fetchUFYear(y);
-      await idbBulkPutUF(rows);
-    } catch (e) {
-      console.warn("bootstrap year error", y, e);
-    }
-    const pct = ((i+1)/total) * 100;
-    setProgress(pct, `Año ${y} (${i+1}/${total})`);
+    setSyncInline(`(Actualizando ${y}… ${Math.round(((i+1)/total)*100)}%)`);
+    try { await idbBulkPutUF(await fetchUFYear(y)); }
+    catch (e) { console.warn("bootstrap year error", y, e); }
   }
-
   state.savedAt = new Date().toISOString();
   saveState();
-
-  setProgress(100, "Listo.");
-  hideProgressSoon();
+  setSyncInline("(Base UF lista)");
 }
 
 async function syncFutureHorizon() {
   if (!navigator.onLine) return;
-
   const today = todayLocalISO();
   const horizon = addDaysISO(today, 35);
   const mm = await idbGetMinMaxDates();
   if (mm.max && mm.max >= horizon) return;
 
-  showProgress("Sincronizando futuro", "Buscando valores nuevos…");
   const y1 = new Date().getFullYear();
   const y2 = y1 + 1;
 
-  try { setProgress(20, `Actualizando ${y1}…`); await idbBulkPutUF(await fetchUFYear(y1)); } catch (e) { console.warn("sync year", y1, e); }
-  try { setProgress(70, `Actualizando ${y2}…`); await idbBulkPutUF(await fetchUFYear(y2)); } catch (e) { console.warn("sync year", y2, e); }
+  setSyncInline(`(Actualizando ${y1})`);
+  try { await idbBulkPutUF(await fetchUFYear(y1)); } catch (e) { console.warn("sync year", y1, e); }
+  setSyncInline(`(Actualizando ${y2})`);
+  try { await idbBulkPutUF(await fetchUFYear(y2)); } catch (e) { console.warn("sync year", y2, e); }
 
   state.savedAt = new Date().toISOString();
   saveState();
-
-  setProgress(100, "Listo.");
-  hideProgressSoon();
+  setSyncInline("(Actualización lista)");
 }
 
 async function ensureOfflineRangeForDate(dateISO) {
   if (!navigator.onLine) return;
-
-  showProgress("Guardando para offline", "Descargando rango…");
   const y = Number(dateISO.slice(0,4));
 
-  try { setProgress(20, `Año ${y-1}…`); await idbBulkPutUF(await fetchUFYear(y - 1)); } catch (e) { console.warn("prev year fail", y-1, e); }
-  try { setProgress(60, `Año ${y}…`); await idbBulkPutUF(await fetchUFYear(y)); } catch (e) { console.warn("year fail", y, e); }
-  try { setProgress(85, `Día ${dateISO}…`); await idbBulkPutUF([await fetchUFForDate(dateISO)]); } catch {}
+  setSyncInline(`(Actualizando ${y-1})`);
+  try { await idbBulkPutUF(await fetchUFYear(y - 1)); } catch (e) { console.warn("prev year fail", y-1, e); }
+
+  setSyncInline(`(Actualizando ${y})`);
+  try { await idbBulkPutUF(await fetchUFYear(y)); } catch (e) { console.warn("year fail", y, e); }
+
+  setSyncInline(`(Actualizando ${dateISO})`);
+  try { await idbBulkPutUF([await fetchUFForDate(dateISO)]); } catch {}
 
   state.savedAt = new Date().toISOString();
   saveState();
-
-  setProgress(100, "Listo para usar sin conexión.");
-  hideProgressSoon();
+  setSyncInline("(Offline listo)");
 }
 
 /* ---------- Date selection ---------- */
 async function setSelectedDate(dateISO, { userAction = false, fromRail = false } = {}) {
   if (!dateISO) return;
-
   dateISO = clampISO(dateISO);
 
-  // Si la fecha cambia mucho, reconstruimos el carril alrededor
   const prev = state.selectedDate;
   const farJump = !prev || Math.abs((new Date(dateISO) - new Date(prev)) / 86400000) > 22;
 
   state.selectedDate = dateISO;
   state.ufManualOverride = null;
   saveState();
-
   updateMonthLabel();
 
   if (farJump || !fromRail) buildRail(dateISO);
-  else {
-    markSelected(dateISO);
-    centerChip(dateISO, { smooth: userAction });
-  }
+  else { markSelected(dateISO); centerChip(dateISO, { smooth: userAction }); }
+
+  // keep native picker in sync
+  el("dateInput").value = dateISO;
 
   if (userAction) {
     if (!navigator.onLine) {
@@ -503,7 +414,6 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
           "Fuera de rango sin conexión",
           "No tengo guardado el valor UF para esa fecha. Conéctate a internet y vuelve a intentarlo; descargaré esa fecha y 1 año previo para dejarlo offline."
         );
-        // revert
         if (prev) setSelectedDate(prev, { userAction: false, fromRail: false });
         return;
       }
@@ -517,10 +427,7 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
 }
 
 /* ---------- Modal editar UF ---------- */
-function openModal() {
-  el("ufManualInput").value = "";
-  el("modal").classList.remove("hidden");
-}
+function openModal() { el("ufManualInput").value = ""; el("modal").classList.remove("hidden"); }
 function closeModal() { el("modal").classList.add("hidden"); }
 function saveManualUF() {
   const uf = parseNumberLoose(el("ufManualInput").value);
@@ -552,10 +459,10 @@ function setupInstallUI() {
   window.addEventListener("appinstalled", () => {
     deferredInstallPrompt = null;
     el("installBtn").classList.add("hidden");
-    toast("Listo: instalada como app.");
+    toast("Instalada como app.");
   });
   el("installBtn").addEventListener("click", async () => {
-    if (!deferredInstallPrompt) return toast("El navegador no ofrece instalación en este momento.");
+    if (!deferredInstallPrompt) return toast("El navegador no ofrece instalación ahora.");
     deferredInstallPrompt.prompt();
     await deferredInstallPrompt.userChoice;
     deferredInstallPrompt = null;
@@ -590,20 +497,8 @@ function wire() {
     }
   });
 
-  // Rail navigation
-  el("prevDayBtn").addEventListener("click", async () => {
-    const d = clampISO(addDaysISO(state.selectedDate || todayLocalISO(), -1));
-    await setSelectedDate(d, { userAction: true, fromRail: true });
-  });
-  el("nextDayBtn").addEventListener("click", async () => {
-    const d = clampISO(addDaysISO(state.selectedDate || todayLocalISO(), 1));
-    await setSelectedDate(d, { userAction: true, fromRail: true });
-  });
-
-  // Snap behavior on scroll end
   el("dateRail").addEventListener("scroll", onRailScrollEndSnap, { passive: true });
 
-  // Calendar jump
   el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
   el("dateInput").addEventListener("change", async () => {
     const v = el("dateInput").value;
@@ -611,19 +506,16 @@ function wire() {
     await setSelectedDate(v, { userAction: true, fromRail: false });
   });
 
-  // Edit UF modal
   el("editUfBtn").addEventListener("click", openModal);
   el("closeModalBtn").addEventListener("click", closeModal);
   el("modalBackdrop").addEventListener("click", closeModal);
   el("saveUfBtn").addEventListener("click", saveManualUF);
   el("resetUfBtn").addEventListener("click", resetManualUFToWeb);
 
-  // alert modal
   el("alertCloseBtn").addEventListener("click", closeAlert);
   el("alertOkBtn").addEventListener("click", closeAlert);
   el("alertBackdrop").addEventListener("click", closeAlert);
 
-  // Clipboard
   el("copyBtn").addEventListener("click", async () => {
     const txt = el("resultValue").textContent || "";
     if (!txt || txt === "—") return toast("Nada que copiar.");
@@ -658,19 +550,22 @@ function wire() {
   state.selectedDate = initialDate;
   saveState();
 
+  el("dateInput").value = initialDate;
+
   renderMode(state.mode);
   updateMonthLabel();
   buildRail(initialDate);
 
   if (navigator.onLine) {
     try {
-      await bootstrapIfEmpty();          // si vacío, baja desde 2010
-      await syncFutureHorizon();         // futuro ~1 mes
-      await ensureOfflineRangeForDate(initialDate); // fecha + 1 año previo
+      await bootstrapIfEmpty();
+      await syncFutureHorizon();
+      await ensureOfflineRangeForDate(initialDate);
     } catch (e) { console.warn(e); }
   }
 
   await setSelectedDate(initialDate, { userAction: false, fromRail: true });
+
   wire();
   setupInstallUI();
   registerSW();
