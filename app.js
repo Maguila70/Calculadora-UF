@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v22";
+const STORAGE_KEY = "uf-pocket:state:v23";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -951,7 +951,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=22"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=23"); }
   catch (e) { console.warn("SW error", e); }
 }
 

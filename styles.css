@@ -503,3 +503,8 @@ input{max-width:100%}
 .copyFmt span{ font-size:9px; opacity:.75 }
 .keypadCol{ margin-left:22px !important; }
 .microRow{ gap:8px !important; }
+
+
+/* ---- v23: label formato ---- */
+.copyFmt span{ font-size:8px !important; opacity:.72; }
+.copyFmt{ gap:5px !important; }
