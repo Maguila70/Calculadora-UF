@@ -600,3 +600,33 @@ input{max-width:100%}
 
 /* ---- v27: rail top padding ---- */
 .dateRail{ padding-top: 22px; }
+
+
+/* ---- v28: visible year bar ---- */
+.yearOverlay{
+  top:6px !important;
+  height:20px !important;
+  border-radius: 10px;
+  background: rgba(0,0,0,.30);
+  border: 1px solid rgba(255,255,255,.10);
+  backdrop-filter: blur(10px);
+  display:block;
+}
+.yearPrimary{
+  top:50%;
+  transform: translate(-50%,-50%) !important;
+  font-size: 14px !important;
+  color: rgba(255,255,255,.78) !important;
+  letter-spacing: .10em !important;
+}
+.yearSecondary{
+  top:50% !important;
+  transform: translateY(-50%);
+  font-size: 11px !important;
+  color: rgba(255,255,255,.72) !important;
+  background: rgba(255,255,255,.07) !important;
+}
+.yearSecondary.left{ left:10px !important; }
+.yearSecondary.right{ right:10px !important; }
+.dateRail{ padding-top: 26px !important; }
+.yearOverlay{ z-index: 10 !important; }
