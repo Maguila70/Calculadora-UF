@@ -197,5 +197,24 @@
   </div>
 
   <script src="app.js"></script>
+
+    <!-- Bootstrap progress (first run only) -->
+    <div id="bootModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="backdrop"></div>
+      <div class="modalCard">
+        <div class="modalHead">
+          <div class="modalTitle">Preparando UF Pocket</div>
+        </div>
+        <div class="modalBody">
+          <div class="modalHint">Esto ocurre solo en la primera ejecución para dejar la base UF disponible offline.</div>
+          <div class="bootLine" id="bootLine">Iniciando…</div>
+          <div class="bootBar">
+            <div class="bootBarFill" id="bootBarFill" style="width:0%"></div>
+          </div>
+          <div class="bootPct" id="bootPct">0%</div>
+        </div>
+      </div>
+    </div>
+
 </body>
 </html>

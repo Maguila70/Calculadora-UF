@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v14";
+const STORAGE_KEY = "uf-pocket:state:v15";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -660,6 +660,9 @@ async function bootstrapIfEmpty() {
   if (!navigator.onLine) return;
   if ((await idbCountUF()) > 0) return;
 
+  // First run: show progress modal
+  showBootProgress("Iniciando descarga…", 0);
+
   const startYear = 2010;
   const currentYear = new Date().getFullYear();
   const endYear = currentYear + 1; // cover 30 días hacia adelante si cruza año
@@ -671,7 +674,9 @@ async function bootstrapIfEmpty() {
     const already = await idbGetMeta(key);
     if (already) { done++; continue; }
 
-    setSyncInline(`(Actualizando ${y} ${Math.round(((done+1)/totalYears)*100)}%)`);
+    showBootProgress(`Descargando UF ${y}…`, Math.round(((done+1)/totalYears)*100));
+    showBootProgress(`Descargando UF ${y}…`, Math.round(((done+1)/totalYears)*100));
+    setSyncInline(`(Actualizando ${y}… ${Math.round(((done+1)/totalYears)*100)}%)`);
     try {
       const rows = await fetchUFYear(y);
       await idbBulkPutUF(rows);
@@ -685,6 +690,7 @@ async function bootstrapIfEmpty() {
   state.savedAt = new Date().toISOString();
   saveState();
   setSyncInline("(Base UF lista)");
+  hideBootProgress();
 }
 async function syncFutureHorizon() {
   if (!navigator.onLine) return;
@@ -848,7 +854,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=14"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=15"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -937,8 +943,12 @@ function wire() {
 
   // Copy "Convertido" line
   el("copyBtn").addEventListener("click", async () => {
-    const txt = el("resultValue").textContent || "";
-    if (!txt || txt === "—") return toast("Nada que copiar.");
+    // Copia el campo NO activo:
+    // - UF→CLP: copia CLP
+    // - CLP→UF: copia UF
+    const target = (state.mode === "UF_TO_CLP") ? el("clpInput") : el("ufInput");
+    const txt = (target?.value || "").trim();
+    if (!txt) return toast("Nada que copiar.");
     try { await navigator.clipboard.writeText(txt); toast("Copiado."); }
     catch { toast("No se pudo copiar (permiso)."); }
   });
@@ -1032,6 +1042,23 @@ function publishedMaxDateISO(todayISO) {
   const mm = String(target.getMonth() + 1).padStart(2, "0");
   const dd = String(target.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+
+/* ---------------- Bootstrap modal (first run) ---------------- */
+function showBootProgress(line, pct) {
+  const m = el("bootModal");
+  if (!m) return;
+  m.classList.remove("hidden");
+  if (el("bootLine")) el("bootLine").textContent = line || "Preparando…";
+  const p = Math.max(0, Math.min(100, Number(pct ?? 0)));
+  if (el("bootPct")) el("bootPct").textContent = `${Math.round(p)}%`;
+  if (el("bootBarFill")) el("bootBarFill").style.width = `${p}%`;
+}
+function hideBootProgress() {
+  const m = el("bootModal");
+  if (!m) return;
+  m.classList.add("hidden");
 }
 
 
