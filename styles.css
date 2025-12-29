@@ -544,3 +544,11 @@ input{max-width:100%}
 
 /* ---- v25: autosize-friendly ---- */
 #ufInput,#clpInput{ font-variant-numeric: tabular-nums; }
+
+
+/* ---- v26: tighten fields <-> keypad spacing ---- */
+.calcGrid{ gap:6px !important; }
+.keypadCol{ margin-left:0 !important; }
+.keypadGrid{ gap:8px !important; } /* slightly tighter inside keypad */
+.fieldsCol{ flex: 1 1 auto !important; }
+.keypadCol{ flex: 0 0 auto !important; }
