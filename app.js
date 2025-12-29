@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v15";
+const STORAGE_KEY = "uf-pocket:state:v16";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -208,9 +208,28 @@ function setSyncInline(text) {
   if (text) syncTimer = setTimeout(() => { box.textContent = ""; }, 2600);
 }
 
+
+/* ---------- Bootstrap modal (first run) ---------- */
+function showBootProgress(line, pct) {
+  const m = el("bootModal");
+  if (!m) return;
+  m.classList.remove("hidden");
+  if (el("bootLine")) el("bootLine").textContent = line || "Preparando…";
+  const p = Math.max(0, Math.min(100, Number(pct ?? 0)));
+  if (el("bootPct")) el("bootPct").textContent = `${Math.round(p)}%`;
+  if (el("bootBarFill")) el("bootBarFill").style.width = `${p}%`;
+}
+function hideBootProgress() {
+  const m = el("bootModal");
+  if (!m) return;
+  m.classList.add("hidden");
+}
+
 /* ---------- Alert modal ---------- */
-function
-        // (sin diálogo)
+function showAlert(title, text) {
+  el("alertTitle").textContent = title || "Aviso";
+  el("alertText").textContent = text || "";
+  el("alertModal").classList.remove("hidden");
 }
 function closeAlert() { el("alertModal").classList.add("hidden"); }
 
@@ -327,7 +346,7 @@ function mindicadorDateToISO(isoStr) {
 async function fetchUFForDate(dateISO) {
   const url = `https://mindicador.cl/api/uf/${isoToDMY(dateISO)}`;
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) { const err = new Error(`HTTP ${res.status}`); err.status = res.status; throw err; }
   const data = await res.json();
   const s = data?.serie?.[0];
   if (!s || typeof s.valor !== "number") throw new Error("Estructura inesperada");
@@ -337,7 +356,7 @@ async function fetchUFForDate(dateISO) {
 async function fetchUFYear(year) {
   const url = `https://mindicador.cl/api/uf/${year}`;
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) { const err = new Error(`HTTP ${res.status}`); err.status = res.status; throw err; }
   const data = await res.json();
   const serie = Array.isArray(data?.serie) ? data.serie : null;
   if (!serie) throw new Error("Estructura inesperada");
@@ -660,7 +679,7 @@ async function bootstrapIfEmpty() {
   if (!navigator.onLine) return;
   if ((await idbCountUF()) > 0) return;
 
-  // First run: show progress modal
+  // Primera ejecución: mostrar progreso (modal)
   showBootProgress("Iniciando descarga…", 0);
 
   const startYear = 2010;
@@ -674,7 +693,6 @@ async function bootstrapIfEmpty() {
     const already = await idbGetMeta(key);
     if (already) { done++; continue; }
 
-    showBootProgress(`Descargando UF ${y}…`, Math.round(((done+1)/totalYears)*100));
     showBootProgress(`Descargando UF ${y}…`, Math.round(((done+1)/totalYears)*100));
     setSyncInline(`(Actualizando ${y}… ${Math.round(((done+1)/totalYears)*100)}%)`);
     try {
@@ -698,17 +716,22 @@ async function syncFutureHorizon() {
   const today = todayLocalISO();
   const publishedMax = publishedMaxDateISO(today);
 
-  // Si ya descubrimos el último día disponible, no ir más allá.
-  const knownMax = await idbGetMeta("future_known_max");
-  const horizon = knownMax ? knownMax : publishedMax;
+  let knownMax = await idbGetMeta("future_known_max"); // YYYY-MM-DD
+  const checkedAt = await idbGetMeta("future_known_max_checked_at"); // ISO
+
+  // Reintentar extender si han pasado varias horas o si cambió el rango teórico
+  const allowProbeBeyondKnown = !knownMax || hoursSinceISO(checkedAt) > 6;
+
+  const targetHorizon = allowProbeBeyondKnown ? publishedMax : (knownMax || publishedMax);
 
   const mm = await idbGetMinMaxDates();
-  if (mm.max && mm.max >= horizon) return;
+  if (mm.max && mm.max >= targetHorizon) return;
 
-  const start = (mm.max && mm.max > today) ? addDaysISO(mm.max, 1) : today;
+  let start = (mm.max && mm.max > today) ? addDaysISO(mm.max, 1) : today;
+  if (knownMax && allowProbeBeyondKnown) start = (start < addDaysISO(knownMax, 1)) ? addDaysISO(knownMax, 1) : start;
 
   const dates = [];
-  for (let d = start; d <= horizon; d = addDaysISO(d, 1)) dates.push(d);
+  for (let d = start; d <= targetHorizon; d = addDaysISO(d, 1)) dates.push(d);
   const total = dates.length || 1;
   let i = 0;
 
@@ -720,11 +743,16 @@ async function syncFutureHorizon() {
     try {
       const row = await fetchUFForDate(d);
       await idbBulkPutUF([row]);
+      knownMax = null; // si logramos descargar, no forzar límite
     } catch (e) {
-      // Si falla en futuro (d > today), asumimos que no hay más publicado por ahora.
-      if (d > today) {
+      // Solo si es 404 (no publicado) fijamos un límite; para errores de red, no.
+      if (e && e.status === 404 && d > today) {
         const lastOk = addDaysISO(d, -1);
         await idbSetMeta("future_known_max", lastOk);
+        await idbSetMeta("future_known_max_checked_at", new Date().toISOString());
+        break;
+      } else {
+        console.warn("sync future error", d, e);
         break;
       }
     }
@@ -786,21 +814,23 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
 
   el("dateInput").value = dateISO;
 
-  if (userAction) {
-    if (!navigator.onLine) {
-      // Si no hay cache para esa fecha, no mostramos diálogo: simplemente no habrá UF para ese día.
-    } else {
-      // FUTURE_MAX_GUARD
+  // Sin diálogos: si no existe UF para la fecha (por falta de cache/offline o por no publicación),
+  // simplemente se mostrará "—" y no se fuerza descarga innecesaria.
+  if (navigator.onLine) {
+    try {
       const today = todayLocalISO();
+      const publishedMax = publishedMaxDateISO(today);
       const knownMax = await idbGetMeta("future_known_max");
-      if (dateISO > today && knownMax && dateISO > knownMax && !(await idbHasDate(dateISO))) {
-        // (sin diálogo)
-} else {
+      const hardMax = knownMax ? knownMax : publishedMax;
+
+      // Solo intentamos completar offline si la fecha está dentro del rango publicable o ya existe en cache.
+      if (dateISO <= hardMax || await idbHasDate(dateISO)) {
         await ensureOfflineRangeForDate(dateISO);
       }
-      // ONLY_SYNC_FUTURE_WHEN_TODAY
-      if (dateISO === todayLocalISO()) await syncFutureHorizon();
-    }
+
+      // Solo prefetch del horizonte futuro cuando es HOY (y dentro de rango)
+      if (dateISO === today) await syncFutureHorizon();
+    } catch (e) { console.warn(e); }
   }
 
   await renderHeader();
@@ -854,7 +884,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=15"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=16"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -1045,20 +1075,11 @@ function publishedMaxDateISO(todayISO) {
 }
 
 
-/* ---------------- Bootstrap modal (first run) ---------------- */
-function showBootProgress(line, pct) {
-  const m = el("bootModal");
-  if (!m) return;
-  m.classList.remove("hidden");
-  if (el("bootLine")) el("bootLine").textContent = line || "Preparando…";
-  const p = Math.max(0, Math.min(100, Number(pct ?? 0)));
-  if (el("bootPct")) el("bootPct").textContent = `${Math.round(p)}%`;
-  if (el("bootBarFill")) el("bootBarFill").style.width = `${p}%`;
-}
-function hideBootProgress() {
-  const m = el("bootModal");
-  if (!m) return;
-  m.classList.add("hidden");
+function hoursSinceISO(iso) {
+  if (!iso) return Infinity;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return Infinity;
+  return (Date.now() - t) / 3600000;
 }
 
 

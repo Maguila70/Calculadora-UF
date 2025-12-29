@@ -445,7 +445,7 @@ input{max-width:100%}
 }
 
 
-/* ---- v15: first-run bootstrap progress modal ---- */
+/* ---- v16: first-run bootstrap progress modal ---- */
 .bootLine{font-size:12px;color:rgba(255,255,255,.78);margin-top:2px}
 .bootBar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);overflow:hidden}
 .bootBarFill{height:100%;background:linear-gradient(90deg, rgba(145,190,255,.85), rgba(127,240,200,.85));width:0%}
