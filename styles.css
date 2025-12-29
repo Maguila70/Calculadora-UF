@@ -497,3 +497,9 @@ input{max-width:100%}
 .copyFmt span{ font-size:10px; letter-spacing:.02em; opacity:.9 }
 .calcGrid{ gap:16px; }
 .keypadCol{ margin-left:12px; }
+
+
+/* ---- v22: shrink fmt + move keypad ---- */
+.copyFmt span{ font-size:9px; opacity:.75 }
+.keypadCol{ margin-left:22px !important; }
+.microRow{ gap:8px !important; }

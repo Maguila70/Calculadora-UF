@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v21";
+const STORAGE_KEY = "uf-pocket:state:v22";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -49,6 +49,22 @@ function clampISO(iso) {
   if (LIMITS.max && iso > LIMITS.max) return LIMITS.max;
   return iso;
 }
+
+var publishedMaxTodayISO = null;
+function getPublishedMaxToday() {
+  const today = todayLocalISO();
+  // Recalcula si cambió el día (evita requests inútiles)
+  if (!publishedMaxTodayISO || publishedMaxTodayISO.__today !== today) {
+    const m = publishedMaxDateISO(today);
+    // Guardamos como objeto para poder taggear sin TDZ/strict issues
+    publishedMaxTodayISO = { value: m, __today: today };
+  }
+  return publishedMaxTodayISO.value;
+}
+
+var railIsScrolling = false;
+var railScrollTimer = null;
+
 function isoToDMY(iso) {
   const [y,m,d] = iso.split("-");
   return `${d}-${m}-${y}`;
@@ -935,7 +951,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=21"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=22"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -1071,12 +1087,8 @@ function wire() {
 /* ---------- Boot ---------- */
 (async function init(){
   loadState();
-  setNetState();
-
-  LIMITS.max = publishedMaxDateISO(todayLocalISO());
-  el("dateInput").min = LIMITS.min;
+  setNetState();  el("dateInput").min = LIMITS.min;
   el("dateInput").max = LIMITS.max;
-
   const initialDate = clampISO(todayLocalISO());
   state.selectedDate = initialDate;
   saveState();
@@ -1113,20 +1125,6 @@ function wire() {
   registerSW();
 })();
 
-let publishedMaxTodayISO = null;
-function getPublishedMaxToday() {
-  const today = todayLocalISO();
-  // recalcula si cambió el día
-  if (!publishedMaxTodayISO || publishedMaxTodayISO._today !== today) {
-    const m = publishedMaxDateISO(today);
-    publishedMaxTodayISO = m;
-    publishedMaxTodayISO._today = today; // tag
-  }
-  return publishedMaxTodayISO;
-}
-
-let railIsScrolling = false;
-let railScrollTimer = null;
 
 function publishedMaxDateISO(todayISO) {
   // Según práctica: el BC publica valores desde el día 10 del mes hasta el día 9 del mes siguiente.
