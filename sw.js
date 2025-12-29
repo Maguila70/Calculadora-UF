@@ -1,5 +1,5 @@
 /* UF Pocket service worker: cachea assets para offline */
-const CACHE_NAME = "uf-pocket-v1";
+const CACHE_NAME = "uf-pocket-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -27,11 +27,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
-
-  // Solo manejar requests del mismo origen
   if (url.origin !== self.location.origin) return;
 
-  // Network-first para HTML; cache-first para el resto
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req).then((res) => {

@@ -104,6 +104,164 @@ body{
 .btn .btn-ic{margin-right:8px; opacity:.9}
 .hidden{display:none !important;}
 .divider{height:1px; background: rgba(255,255,255,.10); margin: 16px 0}
+
+.pill{
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.16);
+  color: rgba(255,255,255,.72);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space:nowrap;
+}
+
+/* Date rail picker */
+.datePicker{
+  display:grid;
+  grid-template-columns: 44px 1fr 44px;
+  gap:10px;
+  align-items:stretch;
+}
+.navBtn{
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.18);
+  color: rgba(255,255,255,.88);
+  border-radius: 16px;
+  cursor:pointer;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  display:grid;
+  place-items:center;
+  transition: transform .08s ease, background .12s ease;
+  user-select:none;
+}
+.navBtn:hover{background: rgba(255,255,255,.10)}
+.navBtn:active{transform: translateY(1px)}
+
+.railWrap{
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+  padding: 12px 10px 10px;
+  position:relative;
+  overflow:hidden;
+}
+.railHeader{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  padding: 0 4px 10px;
+}
+.railTitle{
+  font-weight: 900;
+  letter-spacing:-.02em;
+  font-size: 14px;
+  color: rgba(255,255,255,.86);
+}
+.railMeta{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.nativeDate{
+  position:absolute;
+  left:-9999px;
+  width:1px;
+  height:1px;
+  opacity:0;
+}
+
+.rail{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  padding: 6px 6px 10px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width:none;
+}
+.rail::-webkit-scrollbar{display:none}
+
+.railFades::before,
+.railFades::after{
+  content:"";
+  position:absolute;
+  top: 52px;
+  bottom: 10px;
+  width: 34px;
+  pointer-events:none;
+}
+.railFades::before{
+  left: 0;
+  background: linear-gradient(90deg, rgba(0,0,0,.45), transparent);
+}
+.railFades::after{
+  right: 0;
+  background: linear-gradient(270deg, rgba(0,0,0,.45), transparent);
+}
+
+/* date chip */
+.chip{
+  scroll-snap-align: center;
+  min-width: 74px;
+  padding: 10px 10px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  cursor:pointer;
+  user-select:none;
+  transition: transform .10s ease, background .12s ease, border-color .12s ease;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+}
+.chip:hover{background: rgba(255,255,255,.10)}
+.chip:active{transform: scale(.99)}
+.chip .dow{
+  font-size: 11px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color: rgba(255,255,255,.62);
+}
+.chip .day{
+  font-family: var(--mono);
+  font-weight: 900;
+  font-size: 18px;
+  color: rgba(255,255,255,.90);
+}
+.chip .mon{
+  font-size: 11px;
+  color: rgba(255,255,255,.55);
+}
+.chip.selected{
+  background: rgba(127,240,200,.14);
+  border-color: rgba(127,240,200,.38);
+  box-shadow: 0 10px 35px rgba(0,0,0,.28);
+}
+.chip.selected .dow{color: rgba(127,240,200,.90)}
+.chip.selected .mon{color: rgba(255,255,255,.72)}
+
+/* Center marker */
+.railWrap::after{
+  content:"";
+  position:absolute;
+  left:50%;
+  transform: translateX(-50%);
+  top: 58px;
+  height: calc(100% - 68px);
+  width: 1px;
+  background: rgba(127,240,200,.20);
+  pointer-events:none;
+}
+
+/* Switch + calc */
 .switch{
   display:flex;
   background: rgba(0,0,0,.18);
@@ -127,9 +285,11 @@ body{
   background: rgba(255,255,255,.12);
   box-shadow: 0 10px 30px rgba(0,0,0,.22);
 }
+
 .calc{display:grid; grid-template-columns: 1.25fr .9fr; gap:14px; margin-top:16px}
 @media (max-width: 720px){
   .calc{grid-template-columns: 1fr}
+  .datePicker{grid-template-columns: 40px 1fr 40px}
 }
 .field{display:flex; flex-direction:column; gap:8px}
 .label{font-size:12px; color:var(--muted); letter-spacing:.10em; text-transform:uppercase}
@@ -172,6 +332,7 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
   font-size: 12px;
   text-align:center;
 }
+
 /* Modal */
 .modal{position:fixed; inset:0; display:grid; place-items:center; z-index:10}
 .modal-backdrop{position:absolute; inset:0; background: rgba(0,0,0,.55)}
@@ -195,23 +356,21 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
 .modal-body{padding: 14px}
 .help{font-size:12px; color: var(--muted2); margin-top:6px}
 .modal-actions{display:flex; gap:10px; justify-content:flex-end; margin-top: 12px; flex-wrap:wrap}
-/* Date selector row */
-.datebar{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-end;
-  gap:12px;
-  flex-wrap:wrap;
-}
-.datefield{min-width: 220px;}
-.date-actions{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
-.pill{
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.16);
-  color: rgba(255,255,255,.70);
-  font-family: var(--mono);
-  font-size: 12px;
-}
 .alertText{color: rgba(255,255,255,.82); line-height:1.4}
+
+/* Progress */
+.progressWrap{
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.22);
+  overflow:hidden;
+  margin-top: 4px;
+}
+.progressBar{
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(127,240,200,.15), rgba(127,240,200,.75));
+  transition: width .18s ease;
+}
