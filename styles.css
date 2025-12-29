@@ -508,3 +508,36 @@ input{max-width:100%}
 /* ---- v23: label formato ---- */
 .copyFmt span{ font-size:8px !important; opacity:.72; }
 .copyFmt{ gap:5px !important; }
+
+
+/* ---- v24: wider fields + keypad to the right ---- */
+.calcGrid{
+  display:flex;
+  gap:12px;
+  align-items:flex-end;
+}
+.fieldsCol{
+  flex: 1 1 0;
+  min-width: 0;
+}
+.keypadCol{
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.field.small input{
+  font-size: 16px;
+  padding: 11px 12px;
+}
+#clpInput, #ufInput{
+  text-overflow: clip;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+#clpInput::-webkit-scrollbar, #ufInput::-webkit-scrollbar{
+  display: none;
+}
+.copyFmt span{
+  font-size: 8px !important;
+  letter-spacing: .02em;
+}
+.microRow{gap:8px; flex-wrap:nowrap;}
