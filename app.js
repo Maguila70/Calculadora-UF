@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v26";
+const STORAGE_KEY = "uf-pocket:state:v27";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -433,6 +433,8 @@ function makeChip(dateISO) {
   btn.className = "chip";
   btn.setAttribute("role", "option");
   btn.dataset.date = dateISO;
+  const y = Number(dateISO.slice(0,4));
+  btn.classList.add((y % 2 === 0) ? "year-even" : "year-odd");
   const pubMax = getPublishedMaxToday();
   if (pubMax && dateISO > pubMax) btn.classList.add("nodata");
   btn.innerHTML = `<div class="dow">${dow}</div><div class="day">${day}</div><div class="mon">${mon}</div>`;
@@ -483,6 +485,7 @@ function onRailScroll() {
   if (!rail) return;
 
   railIsScrolling = true;
+  updateYearOverlay();
   clearTimeout(railScrollTimer);
   railScrollTimer = setTimeout(() => { railIsScrolling = false; }, 140);
 
@@ -492,6 +495,54 @@ function onRailScroll() {
     if (rail.scrollLeft < edge) extendRail("left", 60);
     if (rail.scrollLeft + rail.clientWidth > rail.scrollWidth - edge) extendRail("right", 60);
   }, 60);
+}
+
+
+function updateYearOverlay() {
+  const rail = el("dateRail");
+  const wrap = el("yearOverlay");
+  if (!rail || !wrap) return;
+
+  const railRect = rail.getBoundingClientRect();
+  const centerX = railRect.left + railRect.width / 2;
+
+  let best = null;
+  let bestDist = Infinity;
+
+  let minYear = null;
+  let maxYear = null;
+
+  for (const chip of rail.children) {
+    const r = chip.getBoundingClientRect();
+    if (r.right < railRect.left || r.left > railRect.right) continue;
+
+    const y = Number((chip.dataset.date || "0000").slice(0,4));
+    if (minYear === null || y < minYear) minYear = y;
+    if (maxYear === null || y > maxYear) maxYear = y;
+
+    const cx = (r.left + r.right) / 2;
+    const d = Math.abs(cx - centerX);
+    if (d < bestDist) { bestDist = d; best = chip; }
+  }
+
+  const primaryYear = best ? Number(best.dataset.date.slice(0,4)) : (state?.selectedDateISO ? Number(state.selectedDateISO.slice(0,4)) : null);
+  if (primaryYear) el("yearPrimary").textContent = String(primaryYear);
+
+  const left = el("yearSecondaryLeft");
+  const right = el("yearSecondaryRight");
+  if (left) left.classList.add("hidden");
+  if (right) right.classList.add("hidden");
+
+  if (minYear !== null && maxYear !== null && minYear !== maxYear && primaryYear) {
+    if (minYear < primaryYear && left) {
+      left.textContent = String(minYear);
+      left.classList.remove("hidden");
+    }
+    if (maxYear > primaryYear && right) {
+      right.textContent = String(maxYear);
+      right.classList.remove("hidden");
+    }
+  }
 }
 
 function buildRail(centerISO) {
@@ -513,6 +564,7 @@ function buildRail(centerISO) {
 
   // Centramos una vez al construir
   centerChip(centerISO, { smooth: false });
+  updateYearOverlay();
 }
 function markSelected(dateISO) {
   const rail = el("dateRail");
@@ -931,7 +983,10 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
 
   await renderHeader();
   updateConversionFromField(activeField);
+
+  updateYearOverlay();
 }
+
 
 /* ---------- Modal editar UF ---------- */
 function openModal() { el("ufManualInput").value = ""; el("modal").classList.remove("hidden"); }
@@ -980,7 +1035,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=26"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=27"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -1150,6 +1205,7 @@ function wire() {
   refreshConvertedLine();
 
   wire();
+  updateYearOverlay();
   setupInstallUI();
   registerSW();
 })();

@@ -552,3 +552,51 @@ input{max-width:100%}
 .keypadGrid{ gap:8px !important; } /* slightly tighter inside keypad */
 .fieldsCol{ flex: 1 1 auto !important; }
 .keypadCol{ flex: 0 0 auto !important; }
+
+
+/* ---- v27: year overlay ---- */
+.railWrap{ position: relative; }
+.yearOverlay{
+  position:absolute;
+  left:14px;
+  right:14px;
+  top:10px;
+  height:24px;
+  pointer-events:none;
+  z-index:3;
+}
+.yearPrimary{
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  font-weight:900;
+  font-size:18px;
+  letter-spacing:.06em;
+  color: rgba(255,255,255,.28);
+  text-shadow: 0 1px 0 rgba(0,0,0,.18);
+}
+.yearSecondary{
+  position:absolute;
+  top:2px;
+  font-weight:900;
+  font-size:13px;
+  letter-spacing:.06em;
+  color: rgba(255,255,255,.22);
+  padding:3px 8px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  backdrop-filter: blur(6px);
+}
+.yearSecondary.left{ left:0; }
+.yearSecondary.right{ right:0; }
+.hidden{ display:none !important; }
+
+/* ---- v27: alternate year shading in rail ---- */
+.chip.year-even{
+  box-shadow: inset 0 0 0 9999px rgba(255,255,255,.035);
+}
+
+
+/* ---- v27: rail top padding ---- */
+.dateRail{ padding-top: 22px; }
