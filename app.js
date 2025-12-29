@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v16";
+const STORAGE_KEY = "uf-pocket:state:v17";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -434,9 +434,29 @@ function markSelected(dateISO) {
   const rail = el("dateRail");
   rail.querySelectorAll(".chip").forEach((c) => c.classList.toggle("selected", c.dataset.date === dateISO));
 }
+
+function setRailPreview(dateISO) {
+  railPreviewDate = dateISO;
+  const label = el("previewLabel");
+  if (label) {
+    try {
+      const d = new Date(dateISO + "T00:00:00");
+      label.textContent = d.toLocaleDateString("es-CL", { weekday: "short", day: "2-digit", month: "short" }).toUpperCase();
+    } catch {
+      label.textContent = dateISO;
+    }
+  }
+  const rail = el("dateRail");
+  if (!rail) return;
+  rail.querySelectorAll(".chip.preview").forEach(n => n.classList.remove("preview"));
+  const chip = rail.querySelector(`.chip[data-date="${dateISO}"]`);
+  if (chip) chip.classList.add("preview");
+}
 function updateMonthLabel() { el("monthLabel").textContent = state.selectedDate ? formatMonthTitle(state.selectedDate) : "—"; }
 
 let railSnapTimer = null;
+let railPreviewTimer = null;
+let railPreviewDate = null;
 let railPointerDown = false;
 let railSnapping = false;
 let scrollAnimToken = 0;
@@ -462,18 +482,18 @@ function onRailScrollEndSnap() {
     if (!best) return;
     const dateISO = best.dataset.date;
 
-    // Only do a short snap if noticeably off-center, so it doesn't "keep running"
+    // Solo "previsualiza" (no cambia la fecha seleccionada)
+    setRailPreview(dateISO);
+
+    // Snap suave para dejarlo centrado (sin seleccionar)
     const railRect = rail.getBoundingClientRect();
     const bestRect = best.getBoundingClientRect();
     const dist = (bestRect.left + bestRect.width/2) - (railRect.left + railRect.width/2);
 
     railSnapping = true;
-    if (Math.abs(dist) > 10) {
-      centerChip(dateISO, { smooth: true });
-    }
-    if (dateISO !== state.selectedDate) setSelectedDate(dateISO, { userAction: true, fromRail: true });
+    if (Math.abs(dist) > 10) centerChip(dateISO, { smooth: true });
     setTimeout(() => { railSnapping = false; }, 260);
-  }, 240);
+  }, 220);
 }
 
 /* ---------- Header render ---------- */
@@ -884,7 +904,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=16"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=17"); }
   catch (e) { console.warn("SW error", e); }
 }
 

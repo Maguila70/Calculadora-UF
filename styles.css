@@ -450,3 +450,17 @@ input{max-width:100%}
 .bootBar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);overflow:hidden}
 .bootBarFill{height:100%;background:linear-gradient(90deg, rgba(145,190,255,.85), rgba(127,240,200,.85));width:0%}
 .bootPct{font-size:12px;color:rgba(255,255,255,.66);text-align:right;margin-top:6px;font-weight:800}
+
+
+/* ---- v17: rail preview label (no auto-select on scroll) ---- */
+.railHeader{gap:6px}
+.railSub{
+  font-size:11px;
+  color: rgba(255,255,255,.52);
+  letter-spacing:.08em;
+  text-transform: uppercase;
+}
+.chip.preview{
+  outline: 2px solid rgba(127,240,200,.35);
+  box-shadow: 0 0 0 6px rgba(127,240,200,.10);
+}
