@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v18";
+const STORAGE_KEY = "uf-pocket:state:v19";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -447,6 +447,122 @@ function centerChip(dateISO, { smooth = true } = {}) {
       txt = txt.replace(/\./g, "");
     }
 
+    try { await navigator.clipboard.writeText(txt); toast("Copiado."); }
+    catch { toast("No se pudo copiar (permiso)."); }
+  });
+
+  // Manual UF modal
+  el("editUfBtn").addEventListener("click", openModal);
+  el("closeModalBtn").addEventListener("click", closeModal);
+  el("modalBackdrop").addEventListener("click", closeModal);
+  el("saveUfBtn").addEventListener("click", saveManualUF);
+  el("resetUfBtn").addEventListener("click", resetManualUFToWeb);
+
+  // Alert
+  el("alertCloseBtn").addEventListener("click", closeAlert);
+  el("alertOkBtn").addEventListener("click", closeAlert);
+  el("alertBackdrop").addEventListener("click", closeAlert);
+
+  window.addEventListener("online", async () => {
+    setNetState();
+    try {
+      await bootstrapIfEmpty();
+      await syncFutureHorizon();
+      const d = state.selectedDate || todayLocalISO();
+      if (!(await idbHasDate(d))) await ensureOfflineRangeForDate(d);
+      await renderHeader();
+      updateConversionFromField(activeField);
+      toast("Online: cache sincronizada.");
+    } catch (e) { console.warn(e); }
+  });
+  window.addEventListener("offline", () => setNetState());
+}
+
+function wire() {
+  // Segmented buttons now just choose the active field (and can transfer value if other field has data)
+  el("modeUfToClp").addEventListener("click", () => {
+    // If CLP has value, transfer it to UF (like previous behavior)
+    if (effectiveValue("CLP") !== null && currentUF) {
+      const uf = effectiveValue("CLP") / currentUF;
+      calc.UF = { entry: ufCanonical(uf), acc: null, op: null };
+      setDisplayFromCalc("UF");
+      setActive("UF", { fromButton: true });
+      updateConversionFromField("UF");
+      return;
+    }
+    setActive("UF", { fromButton: true });
+  });
+  el("modeClpToUf").addEventListener("click", () => {
+    if (effectiveValue("UF") !== null && currentUF) {
+      const clp = effectiveValue("UF") * currentUF;
+      calc.CLP = { entry: clpCanonical(clp), acc: null, op: null };
+      setDisplayFromCalc("CLP");
+      setActive("CLP", { fromButton: true });
+      updateConversionFromField("CLP");
+      return;
+    }
+    setActive("CLP", { fromButton: true });
+  });
+
+  // Tapping the field selects it as active (without opening native keyboard)
+  el(fieldWrapId("UF")).addEventListener("click", () => setActive("UF"));
+  el(fieldWrapId("CLP")).addEventListener("click", () => setActive("CLP"));
+
+  // Date rail
+  const rail = el("dateRail");
+  rail.addEventListener("scroll", onRailScroll, { passive: true });
+  el("todayBtn").addEventListener("click", async () => {
+    const t = todayLocalISO();
+    await setSelectedDate(t, { userAction: true, fromRail: false });
+  });
+
+  el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
+  el("dateInput").addEventListener("change", async () => {
+    const v = el("dateInput").value;
+    if (!v) return;
+    await setSelectedDate(v, { userAction: true, fromRail: false });
+  });
+
+  // Refresh
+  el("refreshBtn").addEventListener("click", async () => {
+    if (!navigator.onLine) return toast("Offline: no puedo actualizar.");
+    try {
+      await bootstrapIfEmpty();
+      await ensureOfflineRangeForDate(state.selectedDate || todayLocalISO());
+      await syncFutureHorizon();
+      toast("Actualizado.");
+      await renderHeader();
+      updateConversionFromField(activeField);
+    } catch (e) {
+      console.warn(e);
+      toast("No se pudo actualizar.");
+    }
+  });
+
+  // Keypad (event delegation)
+  el("keypad").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-k]");
+    if (!btn) return;
+    const k = btn.dataset.k;
+
+    const f = activeField;
+
+    if (k >= "0" && k <= "9") return appendDigit(f, k);
+    if (k === ".") return appendDecimal(f);
+    if (k === "bk") return backspace(f);
+    if (k === "c") return clearAll(f);
+    if (k === "+" || k === "-") return pressOperator(f, k);
+    if (k === "=") return pressEquals(f);
+  });
+
+  // Copy "Convertido" line
+  el("copyBtn").addEventListener("click", async () => {
+    // Copia el campo NO activo:
+    // - UF→CLP: copia CLP
+    // - CLP→UF: copia UF
+    const target = (state.mode === "UF_TO_CLP") ? el("clpInput") : el("ufInput");
+    const txt = (target?.value || "").trim();
+    if (!txt) return toast("Nada que copiar.");
     try { await navigator.clipboard.writeText(txt); toast("Copiado."); }
     catch { toast("No se pudo copiar (permiso)."); }
   });
