@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v6";
+const STORAGE_KEY = "uf-pocket:state:v8";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -802,6 +802,11 @@ function wire() {
 
   // Date rail
   el("dateRail").addEventListener("scroll", onRailScrollEndSnap, { passive: true });
+  el("todayBtn").addEventListener("click", async () => {
+    const t = todayLocalISO();
+    await setSelectedDate(t, { userAction: true, fromRail: false });
+  });
+
   el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
   el("dateInput").addEventListener("change", async () => {
     const v = el("dateInput").value;

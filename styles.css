@@ -354,3 +354,52 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
 @media (max-width: 420px){
   .keypad{width: 156px}
 }
+
+
+/* ---- v7: lock input rows so they never grow; prevent text wrapping ---- */
+.fieldWrap{
+  height: 86px;
+  max-height: 86px;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+}
+.fieldLabel{ flex:0 0 auto; }
+.fieldInput{
+  flex:0 0 auto;
+  height: 34px;
+  line-height: 34px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.resultRow{
+  height: 58px;
+  max-height: 58px;
+  flex-wrap: nowrap;
+}
+.resultValue{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Keep everything visible on shorter screens */
+@media (max-height: 760px){
+  .app{ padding:10px; gap:8px; }
+  .dateBar{ padding:9px; }
+  .card.main{ padding:9px; gap:8px; }
+  .fields{ gap:8px; }
+  .keypad{ padding:9px; gap:7px; }
+  .key{ padding:10px 0; border-radius:13px; }
+}
+@media (max-height: 700px){
+  .grid{ grid-template-columns: 1fr 168px; }
+  .key{ padding:9px 0; font-size:15px; }
+}
+
+
+/* ---- v8: compact 'Hoy' button in date bar ---- */
+.dateMeta .btn.tiny{ padding:6px 10px; }
+#todayBtn{ min-width:52px; }
