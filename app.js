@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v19";
+const STORAGE_KEY = "uf-pocket:state:v20";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -388,96 +388,548 @@ function animateScrollTo(container, target, duration = 220) {
 }
 function centerChip(dateISO, { smooth = true } = {}) {
   const rail = el("dateRail");
-  rail.addEventListener("scroll", onRailScroll, { passive: true });
-  el("todayBtn").addEventListener("click", async () => {
-    const t = todayLocalISO();
-    await setSelectedDate(t, { userAction: true, fromRail: false });
-  });
-
-  el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
-  el("dateInput").addEventListener("change", async () => {
-    const v = el("dateInput").value;
-    if (!v) return;
-    await setSelectedDate(v, { userAction: true, fromRail: false });
-  });
-
-  // Refresh
-  el("refreshBtn").addEventListener("click", async () => {
-    if (!navigator.onLine) return toast("Offline: no puedo actualizar.");
-    try {
-      await bootstrapIfEmpty();
-      await ensureOfflineRangeForDate(state.selectedDate || todayLocalISO());
-      await syncFutureHorizon();
-      toast("Actualizado.");
-      await renderHeader();
-      updateConversionFromField(activeField);
-    } catch (e) {
-      console.warn(e);
-      toast("No se pudo actualizar.");
-    }
-  });
-
-  // Keypad (event delegation)
-  el("keypad").addEventListener("click", (ev) => {
-    const btn = ev.target.closest("button[data-k]");
-    if (!btn) return;
-    const k = btn.dataset.k;
-
-    const f = activeField;
-
-    if (k >= "0" && k <= "9") return appendDigit(f, k);
-    if (k === ".") return appendDecimal(f);
-    if (k === "bk") return backspace(f);
-    if (k === "c") return clearAll(f);
-    if (k === "+" || k === "-") return pressOperator(f, k);
-    if (k === "=") return pressEquals(f);
-  });
-
-  // Copy "Convertido" line
-  el("copyBtn").addEventListener("click", async () => {
-    const target = (state.mode === "UF_TO_CLP") ? el("clpInput") : el("ufInput");
-    let txt = (target?.value || "").trim();
-    if (!txt) return toast("Nada que copiar.");
-
-    const withFmt = !!el("copyFormatToggle")?.checked;
-    if (!withFmt) {
-      // Quita signo $ y separadores de miles (.) y espacios.
-      // Mantiene coma decimal si existiera.
-      txt = txt.replace(/\$/g, "").replace(/\s/g, "");
-      txt = txt.replace(/\./g, "");
-    }
-
-    try { await navigator.clipboard.writeText(txt); toast("Copiado."); }
-    catch { toast("No se pudo copiar (permiso)."); }
-  });
-
-  // Manual UF modal
-  el("editUfBtn").addEventListener("click", openModal);
-  el("closeModalBtn").addEventListener("click", closeModal);
-  el("modalBackdrop").addEventListener("click", closeModal);
-  el("saveUfBtn").addEventListener("click", saveManualUF);
-  el("resetUfBtn").addEventListener("click", resetManualUFToWeb);
-
-  // Alert
-  el("alertCloseBtn").addEventListener("click", closeAlert);
-  el("alertOkBtn").addEventListener("click", closeAlert);
-  el("alertBackdrop").addEventListener("click", closeAlert);
-
-  window.addEventListener("online", async () => {
-    setNetState();
-    try {
-      await bootstrapIfEmpty();
-      await syncFutureHorizon();
-      const d = state.selectedDate || todayLocalISO();
-      if (!(await idbHasDate(d))) await ensureOfflineRangeForDate(d);
-      await renderHeader();
-      updateConversionFromField(activeField);
-      toast("Online: cache sincronizada.");
-    } catch (e) { console.warn(e); }
-  });
-  window.addEventListener("offline", () => setNetState());
+  const chip = rail.querySelector(`.chip[data-date="${dateISO}"]`);
+  if (!chip) return;
+  const railRect = rail.getBoundingClientRect();
+  const chipRect = chip.getBoundingClientRect();
+  const target = rail.scrollLeft + (chipRect.left - railRect.left) - (railRect.width/2 - chipRect.width/2);
+  if (smooth) animateScrollTo(rail, target, 300);
+  else rail.scrollLeft = target;
 }
 
+/* ---------- Date rail ---------- */
+function dayLabel(dateISO) {
+  const d = new Date(dateISO + "T00:00:00");
+  const dow = d.toLocaleDateString("es-CL", { weekday: "short" }).replace(".", "");
+  const mon = d.toLocaleDateString("es-CL", { month: "short" }).replace(".", "");
+  return { dow: dow.toUpperCase(), day: String(d.getDate()).padStart(2, "0"), mon: mon.toUpperCase() };
+}
+function formatMonthTitle(dateISO) {
+  const d = new Date(dateISO + "T00:00:00");
+  const m = d.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+  return m.charAt(0).toUpperCase() + m.slice(1);
+}
+
+function makeChip(dateISO) {
+  const { dow, day, mon } = dayLabel(dateISO);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "chip";
+  btn.setAttribute("role", "option");
+  btn.dataset.date = dateISO;
+  btn.innerHTML = `<div class="dow">${dow}</div><div class="day">${day}</div><div class="mon">${mon}</div>`;
+  btn.addEventListener("click", () => setSelectedDate(dateISO, { userAction: true, fromRail: true }));
+  return btn;
+}
+
+function extendRail(direction, days = 60) {
+  if (railExtendBusy) return;
+  const rail = el("dateRail");
+  if (!rail || !railStartISO || !railEndISO) return;
+
+  railExtendBusy = true;
+
+  if (direction === "left") {
+    const oldScrollWidth = rail.scrollWidth;
+    const frag = document.createDocumentFragment();
+    let cur = railStartISO;
+    for (let i = days; i >= 1; i--) {
+      const d = clampISO(addDaysISO(cur, -i));
+      frag.appendChild(makeChip(d));
+    }
+    // prepend in correct order
+    const nodes = Array.from(frag.childNodes);
+    nodes.reverse().forEach(n => rail.insertBefore(n, rail.firstChild));
+    railStartISO = clampISO(addDaysISO(cur, -days));
+    // keep view stable
+    const delta = rail.scrollWidth - oldScrollWidth;
+    rail.scrollLeft += delta;
+  } else if (direction === "right") {
+    let cur = railEndISO;
+    for (let i = 1; i <= days; i++) {
+      const d = clampISO(addDaysISO(cur, i));
+      rail.appendChild(makeChip(d));
+    }
+    railEndISO = clampISO(addDaysISO(cur, days));
+  }
+
+  railExtendBusy = false;
+}
+
+let railExtendTimer = null;
+function onRailScroll() {
+  const rail = el("dateRail");
+  if (!rail) return;
+  clearTimeout(railExtendTimer);
+  railExtendTimer = setTimeout(() => {
+    const edge = 80;
+    if (rail.scrollLeft < edge) extendRail("left", 60);
+    if (rail.scrollLeft + rail.clientWidth > rail.scrollWidth - edge) extendRail("right", 60);
+  }, 60);
+}
+
+function buildRail(centerISO) {
+  const rail = el("dateRail");
+  rail.innerHTML = "";
+
+  // Ventana inicial amplia (sin selección automática al hacer scroll)
+  const start = clampISO(addDaysISO(centerISO, -90));
+  const end   = clampISO(addDaysISO(centerISO,  90));
+  railStartISO = start;
+  railEndISO = end;
+
+  for (let d = start; d <= end; d = addDaysISO(d, 1)) {
+    rail.appendChild(makeChip(d));
+  }
+
+  // Solo marcamos la fecha seleccionada (si existe en la ventana)
+  markSelected(centerISO);
+
+  // Centramos una vez al construir
+  centerChip(centerISO, { smooth: false });
+}
+function markSelected(dateISO) {
+  const rail = el("dateRail");
+  rail.querySelectorAll(".chip").forEach((c) => c.classList.toggle("selected", c.dataset.date === dateISO));
+}
+function updateMonthLabel() { el("monthLabel").textContent = state.selectedDate ? formatMonthTitle(state.selectedDate) : "—"; }
+
+let railSnapTimer = null;
+let railStartISO = null;
+let railEndISO = null;
+let railExtendBusy = false;
+
+let railPointerDown = false;
+let railSnapping = false;
+let scrollAnimToken = 0;
+function nearestChipToCenter() {
+  const rail = el("dateRail");
+  const railRect = rail.getBoundingClientRect();
+  const cx = railRect.left + railRect.width/2;
+  let best = null, bestDist = Infinity;
+  rail.querySelectorAll(".chip").forEach((chip) => {
+    const r = chip.getBoundingClientRect();
+    const cc = r.left + r.width/2;
+    const dist = Math.abs(cc - cx);
+    if (dist < bestDist) { bestDist = dist; best = chip; }
+  });
+  return best;
+}
+function onRailScrollEndSnap(){ /* disabled */ }
+
+/* ---------- Header render ---------- */
+async function renderHeader() {
+  const dateISO = state.selectedDate;
+  el("ufDateLabel").textContent = dateISO ? `Fecha: ${new Date(dateISO + "T00:00:00").toLocaleDateString("es-CL")}` : "Fecha: —";
+
+  if (state.ufManualOverride && Number.isFinite(state.ufManualOverride)) currentUF = state.ufManualOverride;
+  else if (dateISO) currentUF = await idbGetUF(dateISO);
+  else currentUF = null;
+
+  el("ufValue").textContent = currentUF ? toUFString(currentUF) : "—";
+  el("savedAt").textContent = state.savedAt ? new Date(state.savedAt).toLocaleString("es-CL") : "—";
+
+  const mm = await idbGetMinMaxDates();
+  el("cacheNote").textContent = (mm.min && mm.max) ? `Cache: ${mm.min} → ${mm.max}` : "Cache: —";
+}
+
+/* ---------- Active field / segmented buttons ---------- */
+function renderModeButtons() {
+  el("modeUfToClp").classList.toggle("active", state.mode === "UF_TO_CLP");
+  el("modeClpToUf").classList.toggle("active", state.mode === "CLP_TO_UF");
+}
+function setActive(field, { fromButton = false } = {}) {
+  activeField = field;
+  state.mode = (field === "UF") ? "UF_TO_CLP" : "CLP_TO_UF";
+  saveState();
+  renderModeButtons();
+  el(fieldWrapId("UF")).classList.toggle("active", field === "UF");
+  el(fieldWrapId("CLP")).classList.toggle("active", field === "CLP");
+
+  // Update micro "Convertido" line immediately
+  refreshConvertedLine();
+
+  if (fromButton) {
+    // optional toast
+  }
+}
+
+/* ---------- Field display & conversion ---------- */
+function getDisplayNumber(field) {
+  const c = calc[field];
+  if (c.entry !== "") return c.entry;
+  if (c.acc !== null && Number.isFinite(c.acc)) return String(c.acc);
+  return "";
+}
+function setDisplayFromCalc(field) {
+  const raw = getDisplayNumber(field);
+  const formatted = raw ? formatNumberForModeFromRaw(raw, fieldMode(field)) : "";
+  fieldEl(field).value = formatted;
+}
+
+function refreshConvertedLine() {
+  const from = activeField;
+  const to = otherField(from);
+  const v = fieldEl(to).value;
+  if (!v) { el("resultValue").textContent = "—"; return; }
+  el("resultValue").textContent = (to === "UF") ? `${v} UF` : v;
+}
+
+function clearField(field) {
+  calc[field].entry = "";
+  calc[field].acc = null;
+  calc[field].op = null;
+  fieldEl(field).value = "";
+}
+
+function effectiveValue(field) {
+  const raw = getDisplayNumber(field);
+  const n = parseFlexibleNumber(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* We'll implement without recursion: set target calc state directly */
+function setTargetValue(target, num) {
+  if (target === "CLP") {
+    calc.CLP.entry = clpCanonical(num);
+    calc.CLP.acc = null;
+    calc.CLP.op = null;
+  } else {
+    calc.UF.entry = ufCanonical(num);
+    calc.UF.acc = null;
+    calc.UF.op = null;
+  }
+  setDisplayFromCalc(target);
+}
+
+function updateConversionFromField(field) {
+  if (!currentUF || !Number.isFinite(currentUF)) {
+    clearField(otherField(field));
+    refreshConvertedLine();
+    return;
+  }
+  const val = effectiveValue(field);
+  const tgt = otherField(field);
+
+  if (val === null) {
+    clearField(tgt);
+    refreshConvertedLine();
+    return;
+  }
+
+  if (field === "UF") {
+    const clp = val * currentUF;
+    setTargetValue("CLP", clp);
+  } else {
+    const uf = val / currentUF;
+    setTargetValue("UF", uf);
+  }
+  refreshConvertedLine();
+}
+
+/* ---------- Mini keypad calculator logic (per-field) ---------- */
+function normalizeEntryForAppend(cur) {
+  // Remove leading zeros unless "0." form
+  if (cur === "0") return "";
+  return cur;
+}
+function appendDigit(field, d) {
+  const c = calc[field];
+  // If currently showing accumulator (entry empty) and operator is set, start a fresh entry
+  if (c.entry === "" && c.op) {
+    // start new entry
+  }
+  c.entry = normalizeEntryForAppend(c.entry) + d;
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+function appendDecimal(field) {
+  const c = calc[field];
+  if (c.entry === "") c.entry = "0.";
+  else if (!c.entry.includes(".")) c.entry += ".";
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+function backspace(field) {
+  const c = calc[field];
+  if (c.entry === "") {
+    // if no entry, allow backspace to clear accumulator
+    if (c.acc !== null) { c.acc = null; c.op = null; }
+    setDisplayFromCalc(field);
+    updateConversionFromField(field);
+    return;
+  }
+  c.entry = c.entry.slice(0, -1);
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+function clearAll(field) {
+  calc[field] = { entry: "", acc: null, op: null };
+  fieldEl(field).value = "";
+  updateConversionFromField(field);
+}
+
+function applyOp(acc, b, op) {
+  if (op === "+") return acc + b;
+  if (op === "-") return acc - b;
+  return b;
+}
+function pressOperator(field, op) {
+  const c = calc[field];
+  const cur = effectiveValue(field);
+
+  if (cur === null) {
+    // If nothing typed but there is an acc, just update operator
+    if (c.acc !== null) c.op = op;
+    return;
+  }
+
+  if (c.acc === null) c.acc = cur;
+  else if (c.op) c.acc = applyOp(c.acc, cur, c.op);
+  else c.acc = cur;
+
+  c.op = op;
+  c.entry = ""; // next digits start a new entry
+  // Show accumulator in field display
+  fieldEl(field).value = formatNumberForModeFromRaw(String(c.acc), fieldMode(field));
+  updateConversionFromField(field);
+}
+function pressEquals(field) {
+  const c = calc[field];
+  const cur = effectiveValue(field);
+
+  if (c.acc === null) {
+    // nothing pending; keep as-is
+    updateConversionFromField(field);
+    return;
+  }
+
+  const b = (cur === null) ? c.acc : cur;
+  const res = c.op ? applyOp(c.acc, b, c.op) : b;
+
+  c.acc = null;
+  c.op = null;
+  c.entry = (field === "CLP") ? clpCanonical(res) : ufCanonical(res);
+
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+
+/* ---------- Sync rules (inline status) ---------- */
+async function bootstrapIfEmpty() {
+  if (!navigator.onLine) return;
+  if ((await idbCountUF()) > 0) return;
+
+  // Primera ejecución: mostrar progreso (modal)
+  showBootProgress("Iniciando descarga…", 0);
+
+  const startYear = 2010;
+  const currentYear = new Date().getFullYear();
+  const endYear = currentYear + 1; // cover 30 días hacia adelante si cruza año
+  const totalYears = (endYear - startYear + 1);
+
+  let done = 0;
+  for (let y = startYear; y <= endYear; y++) {
+    const key = `year_done_${y}`;
+    const already = await idbGetMeta(key);
+    if (already) { done++; continue; }
+
+    showBootProgress(`Descargando UF ${y}…`, Math.round(((done+1)/totalYears)*100));
+    setSyncInline(`(Actualizando ${y}… ${Math.round(((done+1)/totalYears)*100)}%)`);
+    try {
+      const rows = await fetchUFYear(y);
+      await idbBulkPutUF(rows);
+      await idbSetMeta(key, true);
+    } catch (e) {
+      console.warn("bootstrap year error", y, e);
+    }
+    done++;
+  }
+
+  state.savedAt = new Date().toISOString();
+  saveState();
+  setSyncInline("(Base UF lista)");
+  hideBootProgress();
+}
+async function syncFutureHorizon() {
+  if (!navigator.onLine) return;
+
+  const today = todayLocalISO();
+  const publishedMax = publishedMaxDateISO(today);
+
+  let knownMax = await idbGetMeta("future_known_max"); // YYYY-MM-DD
+  const checkedAt = await idbGetMeta("future_known_max_checked_at"); // ISO
+
+  // Reintentar extender si han pasado varias horas o si cambió el rango teórico
+  const allowProbeBeyondKnown = !knownMax || hoursSinceISO(checkedAt) > 6;
+
+  const targetHorizon = allowProbeBeyondKnown ? publishedMax : (knownMax || publishedMax);
+
+  const mm = await idbGetMinMaxDates();
+  if (mm.max && mm.max >= targetHorizon) return;
+
+  let start = (mm.max && mm.max > today) ? addDaysISO(mm.max, 1) : today;
+  if (knownMax && allowProbeBeyondKnown) start = (start < addDaysISO(knownMax, 1)) ? addDaysISO(knownMax, 1) : start;
+
+  const dates = [];
+  for (let d = start; d <= targetHorizon; d = addDaysISO(d, 1)) dates.push(d);
+  const total = dates.length || 1;
+  let i = 0;
+
+  for (const d of dates) {
+    i++;
+    if (await idbHasDate(d)) continue;
+
+    setSyncInline(`(Actualizando ${d.slice(0,4)} ${Math.round((i/total)*100)}%)`);
+    try {
+      const row = await fetchUFForDate(d);
+      await idbBulkPutUF([row]);
+      knownMax = null; // si logramos descargar, no forzar límite
+    } catch (e) {
+      // Solo si es 404 (no publicado) fijamos un límite; para errores de red, no.
+      if (e && e.status === 404 && d > today) {
+        const lastOk = addDaysISO(d, -1);
+        await idbSetMeta("future_known_max", lastOk);
+        await idbSetMeta("future_known_max_checked_at", new Date().toISOString());
+        break;
+      } else {
+        console.warn("sync future error", d, e);
+        break;
+      }
+    }
+  }
+
+  state.savedAt = new Date().toISOString();
+  saveState();
+  setSyncInline("(Actualización lista)");
+}
+async function ensureOfflineRangeForDate(dateISO) {
+  if (!navigator.onLine) return;
+  const y = Number(dateISO.slice(0,4));
+  const years = [y - 1, y];
+
+  // Si ya existe el valor exacto, no lo volvemos a bajar (UF histórica no cambia)
+  const hasExact = await idbHasDate(dateISO);
+
+  for (const yy of years) {
+    if (yy < 2010) continue;
+    const key = `year_done_${yy}`;
+    const already = await idbGetMeta(key);
+    if (already) continue;
+
+    setSyncInline(`(Actualizando ${yy})`);
+    try {
+      const rows = await fetchUFYear(yy);
+      await idbBulkPutUF(rows);
+      await idbSetMeta(key, true);
+    } catch (e) {
+      console.warn("year fetch fail", yy, e);
+    }
+  }
+
+  if (!hasExact) {
+    setSyncInline(`(Actualizando ${dateISO})`);
+    try { await idbBulkPutUF([await fetchUFForDate(dateISO)]); } catch (e) { console.warn("date fetch fail", dateISO, e); }
+  }
+
+  state.savedAt = new Date().toISOString();
+  saveState();
+  setSyncInline("(Offline listo)");
+}
+
+/* ---------- Date selection ---------- */
+async function setSelectedDate(dateISO, { userAction = false, fromRail = false } = {}) {
+  if (!dateISO) return;
+  dateISO = clampISO(dateISO);
+
+  const prev = state.selectedDate;
+  const farJump = !prev || Math.abs((new Date(dateISO) - new Date(prev)) / 86400000) > 22;
+
+  state.selectedDate = dateISO;
+  state.ufManualOverride = null;
+  saveState();
+  updateMonthLabel();
+
+  if (farJump || !fromRail) buildRail(dateISO);
+  else { markSelected(dateISO); centerChip(dateISO, { smooth: userAction }); }
+
+  el("dateInput").value = dateISO;
+
+  // Sin diálogos: si no existe UF para la fecha (por falta de cache/offline o por no publicación),
+  // simplemente se mostrará "—" y no se fuerza descarga innecesaria.
+  if (navigator.onLine) {
+    try {
+      const today = todayLocalISO();
+      const publishedMax = publishedMaxDateISO(today);
+      const knownMax = await idbGetMeta("future_known_max");
+      const hardMax = knownMax ? knownMax : publishedMax;
+
+      // Solo intentamos completar offline si la fecha está dentro del rango publicable o ya existe en cache.
+      if (dateISO <= hardMax || await idbHasDate(dateISO)) {
+        await ensureOfflineRangeForDate(dateISO);
+      }
+
+      // Solo prefetch del horizonte futuro cuando es HOY (y dentro de rango)
+      if (dateISO === today) await syncFutureHorizon();
+    } catch (e) { console.warn(e); }
+  }
+
+  await renderHeader();
+  updateConversionFromField(activeField);
+}
+
+/* ---------- Modal editar UF ---------- */
+function openModal() { el("ufManualInput").value = ""; el("modal").classList.remove("hidden"); }
+function closeModal() { el("modal").classList.add("hidden"); }
+function saveManualUF() {
+  const uf = parseFlexibleNumber(el("ufManualInput").value);
+  if (!Number.isFinite(uf) || uf <= 0) return toast("Ingresa un valor UF válido (ej: 39.716,44).");
+  state.ufManualOverride = uf;
+  saveState();
+  closeModal();
+  toast("UF aplicada manualmente (solo para esta fecha).");
+  renderHeader().then(() => updateConversionFromField(activeField));
+}
+async function resetManualUFToWeb() {
+  if (!navigator.onLine) return toast("Offline: no puedo restaurar desde la web.");
+  const dateISO = state.selectedDate || todayLocalISO();
+  await ensureOfflineRangeForDate(dateISO);
+  state.ufManualOverride = null;
+  saveState();
+  closeModal();
+  toast("UF restaurada desde la web.");
+  await renderHeader();
+  updateConversionFromField(activeField);
+}
+
+/* ---------- PWA install ---------- */
+function setupInstallUI() {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    el("installBtn").classList.remove("hidden");
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    el("installBtn").classList.add("hidden");
+    toast("Instalada como app.");
+  });
+  el("installBtn").addEventListener("click", async () => {
+    if (!deferredInstallPrompt) return toast("El navegador no ofrece instalación ahora.");
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+  });
+}
+
+/* ---------- SW ---------- */
+async function registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  try { await navigator.serviceWorker.register("./sw.js?v=20"); }
+  catch (e) { console.warn("SW error", e); }
+}
+
+/* ---------- Events ---------- */
 function wire() {
   // Segmented buttons now just choose the active field (and can transfer value if other field has data)
   el("modeUfToClp").addEventListener("click", () => {
@@ -511,6 +963,11 @@ function wire() {
   // Date rail
   const rail = el("dateRail");
   rail.addEventListener("scroll", onRailScroll, { passive: true });
+  rail.addEventListener("pointerdown", () => { railPointerDown = true; scrollAnimToken++; }, { passive: true });
+  const endDrag = () => { railPointerDown = false;  };
+  rail.addEventListener("pointerup", endDrag, { passive: true });
+  rail.addEventListener("pointercancel", endDrag, { passive: true });
+  rail.addEventListener("pointerleave", endDrag, { passive: true });
   el("todayBtn").addEventListener("click", async () => {
     const t = todayLocalISO();
     await setSelectedDate(t, { userAction: true, fromRail: false });
@@ -561,8 +1018,15 @@ function wire() {
     // - UF→CLP: copia CLP
     // - CLP→UF: copia UF
     const target = (state.mode === "UF_TO_CLP") ? el("clpInput") : el("ufInput");
-    const txt = (target?.value || "").trim();
+    let txt = (target?.value || "").trim();
     if (!txt) return toast("Nada que copiar.");
+
+    const withFmt = !!el("copyFormatToggle")?.checked;
+    if (!withFmt) {
+      txt = txt.replace(/\$/g, "").replace(/\s/g, "");
+      txt = txt.replace(/\./g, "");
+    }
+
     try { await navigator.clipboard.writeText(txt); toast("Copiado."); }
     catch { toast("No se pudo copiar (permiso)."); }
   });

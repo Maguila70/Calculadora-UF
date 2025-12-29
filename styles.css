@@ -452,21 +452,7 @@ input{max-width:100%}
 .bootPct{font-size:12px;color:rgba(255,255,255,.66);text-align:right;margin-top:6px;font-weight:800}
 
 
-/* ---- v17: rail preview label (no auto-select on scroll) ---- */
-.railHeader{gap:6px}
-.railSub{
-  font-size:11px;
-  color: rgba(255,255,255,.52);
-  letter-spacing:.08em;
-  text-transform: uppercase;
-}
-.chip.preview{
-  outline: 2px solid rgba(127,240,200,.35);
-  box-shadow: 0 0 0 6px rgba(127,240,200,.10);
-}
-
-
-/* ---- v18: boot modal overlay ---- */
+/* ---- v20: boot modal overlay ---- */
 #bootModal{
   position: fixed;
   inset: 0;
@@ -476,10 +462,10 @@ input{max-width:100%}
   justify-content: center;
   padding: 18px;
 }
-#bootModal.hidden{ display: none !important; }
+#bootModal.hidden{ display:none !important; }
 #bootModal .modal-backdrop{
-  position: absolute;
-  inset: 0;
+  position:absolute;
+  inset:0;
   background: rgba(0,0,0,.45);
   backdrop-filter: blur(6px);
 }
@@ -492,19 +478,9 @@ input{max-width:100%}
   background: rgba(20, 34, 42, .78);
   box-shadow: 0 22px 70px rgba(0,0,0,.45);
 }
-#bootModal .modal-title{ font-weight: 900; }
-#bootModal .note{ font-size: 12px; color: rgba(255,255,255,.72); margin: 8px 0 10px; }
 
 
-/* ---- v18: copy format toggle ---- */
-.copyFmt{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  margin-left:10px;
-  font-size:11px;
-  color: rgba(255,255,255,.62);
-  user-select:none;
-  white-space:nowrap;
-}
-.copyFmt input{ width:14px; height:14px; accent-color: rgba(127,240,200,.95); }
+/* ---- v20: copy format toggle ---- */
+.microRow{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}
+.copyFmt{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.62);user-select:none;white-space:nowrap}
+.copyFmt input{width:14px;height:14px;accent-color: rgba(127,240,200,.95)}
