@@ -87,16 +87,49 @@
         <button id="modeClpToUf" class="seg" type="button">CLP → UF</button>
       </div>
 
-      <div class="calc compact">
-        <label class="field">
-          <span class="label" id="inputLabel">Monto en UF</span>
-          <input id="amountInput" inputmode="decimal" autocomplete="off" placeholder="0" />
-        </label>
+            <div class="calc compact">
+        <div class="calcGrid">
+          <div class="fieldsCol">
+            <label class="field small active" id="ufFieldWrap">
+              <span class="label">UF</span>
+              <input id="ufInput" inputmode="none" readonly tabindex="-1" autocomplete="off" placeholder="0" />
+            </label>
 
-        <div class="result">
-          <div class="label">Resultado</div>
-          <div class="value" id="resultValue">—</div>
-          <button id="copyBtn" class="btn btn-small btn-ghost" type="button">Copiar</button>
+            <label class="field small" id="clpFieldWrap">
+              <span class="label">CLP</span>
+              <input id="clpInput" inputmode="none" readonly tabindex="-1" autocomplete="off" placeholder="$ 0" />
+            </label>
+
+            <div class="microRow">
+              <div class="microLabel">Convertido</div>
+              <div class="microValue" id="resultValue">—</div>
+              <button id="copyBtn" class="btn btn-small btn-ghost" type="button">Copiar</button>
+            </div>
+          </div>
+
+          <div class="keypadCol" aria-label="Teclado numérico">
+            <div class="keypad" id="keypad">
+              <button class="key" type="button" data-k="7">7</button>
+              <button class="key" type="button" data-k="8">8</button>
+              <button class="key" type="button" data-k="9">9</button>
+              <button class="key key-op" type="button" data-k="bk">⌫</button>
+
+              <button class="key" type="button" data-k="4">4</button>
+              <button class="key" type="button" data-k="5">5</button>
+              <button class="key" type="button" data-k="6">6</button>
+              <button class="key key-op" type="button" data-k="+">+</button>
+
+              <button class="key" type="button" data-k="1">1</button>
+              <button class="key" type="button" data-k="2">2</button>
+              <button class="key" type="button" data-k="3">3</button>
+              <button class="key key-op" type="button" data-k="-">−</button>
+
+              <button class="key key-wide" type="button" data-k="0">0</button>
+              <button class="key" type="button" data-k=".">,</button>
+              <button class="key key-eq" type="button" data-k="=">=</button>
+              <button class="key key-op" type="button" data-k="c">C</button>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -1,11 +1,13 @@
-/* UF Pocket – compact date rail + offline cache (IndexedDB) + inline sync status + smart input formatting */
-const STORAGE_KEY = "uf-pocket:state:v5";
+/* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
+const STORAGE_KEY = "uf-pocket:state:v6";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
 const el = (id) => document.getElementById(id);
 
 const state = {
+  // Reuse same naming as earlier builds so the UI (segmented buttons) stays familiar
+  // UF_TO_CLP => UF field is active; CLP_TO_UF => CLP field is active
   mode: "UF_TO_CLP",
   selectedDate: null,     // YYYY-MM-DD
   savedAt: null,          // ISO string (sync time)
@@ -15,8 +17,17 @@ const state = {
 let deferredInstallPrompt = null;
 let dbPromise = null;
 let currentUF = null; // numeric UF value for selected date (manual override or DB)
+let activeField = "UF"; // "UF" | "CLP"
+
+const calc = {
+  UF: { entry: "", acc: null, op: null },
+  CLP:{ entry: "", acc: null, op: null },
+};
 
 const LIMITS = { min: "2010-01-01", max: null };
+
+const elUF = () => el("ufInput");
+const elCLP = () => el("clpInput");
 
 function todayLocalISO() {
   const d = new Date();
@@ -44,17 +55,12 @@ function isoToDMY(iso) {
 }
 
 /* ---------- Number parsing & formatting ---------- */
-/* Accepts inputs like:
-   - "1234" "1.234" "$ 1.234" "$1.234,56" "39.716,44" "39,716.44" etc.
-   Strategy: keep only digits and separators, decide decimal separator as LAST occurrence of ',' or '.'
-   (If only one separator and there are 3 digits after, treat as thousands, not decimal).
-*/
 function parseFlexibleNumber(raw) {
   if (raw == null) return null;
   let s = String(raw).trim();
   if (!s) return null;
   s = s.replace(/\s+/g, "");
-  s = s.replace(/[^\d.,-]/g, ""); // remove $, UF, etc.
+  s = s.replace(/[^\d.,-]/g, "");
   if (!s) return null;
 
   const neg = s.startsWith("-");
@@ -65,11 +71,8 @@ function parseFlexibleNumber(raw) {
   const lastDot = s.lastIndexOf(".");
   let decSep = null;
 
-  if (lastComma === -1 && lastDot === -1) {
-    decSep = null;
-  } else {
-    decSep = lastComma > lastDot ? "," : ".";
-  }
+  if (lastComma === -1 && lastDot === -1) decSep = null;
+  else decSep = lastComma > lastDot ? "," : ".";
 
   let intPart = s;
   let decPart = "";
@@ -89,7 +92,6 @@ function parseFlexibleNumber(raw) {
 
   intPart = intPart.replace(/[.,]/g, "");
   decPart = decPart.replace(/[.,]/g, "");
-
   if (!intPart) intPart = "0";
 
   const numStr = decPart ? `${intPart}.${decPart}` : intPart;
@@ -137,7 +139,6 @@ function formatUFInputFromParts(parts) {
   if (parts.sep) return `${intFmt},${dec}`;
   return intFmt;
 }
-
 function formatCLPInputFromParts(parts) {
   const intFmt = formatGroupedInt(parts.intPart);
   const dec = parts.decPart.slice(0, 2);
@@ -156,28 +157,31 @@ function toUFString(n) {
 function toCLPString(n) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
 }
-
-/* caret preservation: keep digit count before caret */
-function reformatInputKeepingCaret(inputEl, mode) {
-  const raw = inputEl.value;
-  const caret = inputEl.selectionStart ?? raw.length;
-
-  const left = raw.slice(0, caret);
-  const digitsLeft = (left.match(/\d/g) || []).length;
-
-  const formatted = formatNumberForModeFromRaw(raw, mode);
-  inputEl.value = formatted;
-
-  let pos = 0, seen = 0;
-  while (pos < formatted.length) {
-    if (/\d/.test(formatted[pos])) seen++;
-    if (seen >= digitsLeft) { pos++; break; }
-    pos++;
-  }
-  inputEl.setSelectionRange(pos, pos);
+function ufCanonical(n) {
+  if (!Number.isFinite(n)) return "";
+  let s = n.toFixed(4);
+  // trim trailing zeros but keep at least 1 decimal if user expects decimals? (keep simple)
+  s = s.replace(/\.?0+$/,"");
+  return s;
+}
+function clpCanonical(n) {
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n));
 }
 
-/* ---------- UI helpers ---------- */
+function fieldMode(field) {
+  return field === "CLP" ? "CLP_TO_UF" : "UF_TO_CLP";
+}
+function fieldWrapId(field) {
+  return field === "CLP" ? "clpFieldWrap" : "ufFieldWrap";
+}
+function fieldEl(field) {
+  return field === "CLP" ? elCLP() : elUF();
+}
+function otherField(field) {
+  return field === "CLP" ? "UF" : "CLP";
+}
+
 function setNetState() {
   const online = navigator.onLine;
   el("netState").textContent = online ? "Online" : "Offline";
@@ -189,7 +193,7 @@ function toast(msg) {
   hint.style.color = "rgba(255,255,255,.82)";
   clearTimeout(toast._t);
   toast._t = setTimeout(() => {
-    hint.textContent = "Tip: desliza el carril para cambiar de fecha.";
+    hint.textContent = "Tip: toca UF o CLP y usa el teclado para ingresar valores.";
     hint.style.color = "";
   }, 3200);
 }
@@ -423,15 +427,8 @@ function onRailScrollEndSnap() {
   }, 140);
 }
 
-/* ---------- UI render ---------- */
-function renderMode(mode) {
-  el("modeUfToClp").classList.toggle("active", mode === "UF_TO_CLP");
-  el("modeClpToUf").classList.toggle("active", mode === "CLP_TO_UF");
-  el("inputLabel").textContent = mode === "UF_TO_CLP" ? "Monto en UF" : "Monto en pesos (CLP)";
-  el("amountInput").placeholder = mode === "UF_TO_CLP" ? "0" : "$ 0";
-}
-
-async function renderHeaderAndCompute() {
+/* ---------- Header render ---------- */
+async function renderHeader() {
   const dateISO = state.selectedDate;
   el("ufDateLabel").textContent = dateISO ? `Fecha: ${new Date(dateISO + "T00:00:00").toLocaleDateString("es-CL")}` : "Fecha: —";
 
@@ -444,42 +441,188 @@ async function renderHeaderAndCompute() {
 
   const mm = await idbGetMinMaxDates();
   el("cachePill").textContent = (mm.min && mm.max) ? `Cache: ${mm.min} → ${mm.max}` : "Cache: —";
-
-  computeLive();
 }
 
-function computeLive() {
-  const amount = parseFlexibleNumber(el("amountInput").value);
-  if (!currentUF || !Number.isFinite(currentUF) || !Number.isFinite(amount) || amount < 0) {
-    el("resultValue").textContent = "—";
-    return;
-  }
-  if (state.mode === "UF_TO_CLP") {
-    const clp = amount * currentUF;
-    el("resultValue").textContent = `$ ${toCLPString(clp)}`;
-  } else {
-    const uf = amount / currentUF;
-    el("resultValue").textContent = `${toUFString(uf)} UF`;
+/* ---------- Active field / segmented buttons ---------- */
+function renderModeButtons() {
+  el("modeUfToClp").classList.toggle("active", state.mode === "UF_TO_CLP");
+  el("modeClpToUf").classList.toggle("active", state.mode === "CLP_TO_UF");
+}
+function setActive(field, { fromButton = false } = {}) {
+  activeField = field;
+  state.mode = (field === "UF") ? "UF_TO_CLP" : "CLP_TO_UF";
+  saveState();
+  renderModeButtons();
+  el(fieldWrapId("UF")).classList.toggle("active", field === "UF");
+  el(fieldWrapId("CLP")).classList.toggle("active", field === "CLP");
+
+  // Update micro "Convertido" line immediately
+  refreshConvertedLine();
+
+  if (fromButton) {
+    // optional toast
   }
 }
 
-/* Switch mode: move previous result into input */
-function transferOnModeSwitch(oldMode, newMode) {
-  const amount = parseFlexibleNumber(el("amountInput").value);
-  if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(currentUF) || !currentUF) {
-    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, newMode);
+/* ---------- Field display & conversion ---------- */
+function getDisplayNumber(field) {
+  const c = calc[field];
+  if (c.entry !== "") return c.entry;
+  if (c.acc !== null && Number.isFinite(c.acc)) return String(c.acc);
+  return "";
+}
+function setDisplayFromCalc(field) {
+  const raw = getDisplayNumber(field);
+  const formatted = raw ? formatNumberForModeFromRaw(raw, fieldMode(field)) : "";
+  fieldEl(field).value = formatted;
+}
+
+function refreshConvertedLine() {
+  const from = activeField;
+  const to = otherField(from);
+  const v = fieldEl(to).value;
+  if (!v) { el("resultValue").textContent = "—"; return; }
+  el("resultValue").textContent = (to === "UF") ? `${v} UF` : v;
+}
+
+function clearField(field) {
+  calc[field].entry = "";
+  calc[field].acc = null;
+  calc[field].op = null;
+  fieldEl(field).value = "";
+}
+
+function effectiveValue(field) {
+  const raw = getDisplayNumber(field);
+  const n = parseFlexibleNumber(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* We'll implement without recursion: set target calc state directly */
+function setTargetValue(target, num) {
+  if (target === "CLP") {
+    calc.CLP.entry = clpCanonical(num);
+    calc.CLP.acc = null;
+    calc.CLP.op = null;
+  } else {
+    calc.UF.entry = ufCanonical(num);
+    calc.UF.acc = null;
+    calc.UF.op = null;
+  }
+  setDisplayFromCalc(target);
+}
+
+function updateConversionFromField(field) {
+  if (!currentUF || !Number.isFinite(currentUF)) {
+    clearField(otherField(field));
+    refreshConvertedLine();
+    return;
+  }
+  const val = effectiveValue(field);
+  const tgt = otherField(field);
+
+  if (val === null) {
+    clearField(tgt);
+    refreshConvertedLine();
     return;
   }
 
-  if (oldMode === "UF_TO_CLP" && newMode === "CLP_TO_UF") {
-    const clp = amount * currentUF;
-    el("amountInput").value = `$ ${toCLPString(clp)}`;
-  } else if (oldMode === "CLP_TO_UF" && newMode === "UF_TO_CLP") {
-    const uf = amount / currentUF;
-    el("amountInput").value = toUFString(uf);
+  if (field === "UF") {
+    const clp = val * currentUF;
+    setTargetValue("CLP", clp);
   } else {
-    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, newMode);
+    const uf = val / currentUF;
+    setTargetValue("UF", uf);
   }
+  refreshConvertedLine();
+}
+
+/* ---------- Mini keypad calculator logic (per-field) ---------- */
+function normalizeEntryForAppend(cur) {
+  // Remove leading zeros unless "0." form
+  if (cur === "0") return "";
+  return cur;
+}
+function appendDigit(field, d) {
+  const c = calc[field];
+  // If currently showing accumulator (entry empty) and operator is set, start a fresh entry
+  if (c.entry === "" && c.op) {
+    // start new entry
+  }
+  c.entry = normalizeEntryForAppend(c.entry) + d;
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+function appendDecimal(field) {
+  const c = calc[field];
+  if (c.entry === "") c.entry = "0.";
+  else if (!c.entry.includes(".")) c.entry += ".";
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+function backspace(field) {
+  const c = calc[field];
+  if (c.entry === "") {
+    // if no entry, allow backspace to clear accumulator
+    if (c.acc !== null) { c.acc = null; c.op = null; }
+    setDisplayFromCalc(field);
+    updateConversionFromField(field);
+    return;
+  }
+  c.entry = c.entry.slice(0, -1);
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
+}
+function clearAll(field) {
+  calc[field] = { entry: "", acc: null, op: null };
+  fieldEl(field).value = "";
+  updateConversionFromField(field);
+}
+
+function applyOp(acc, b, op) {
+  if (op === "+") return acc + b;
+  if (op === "-") return acc - b;
+  return b;
+}
+function pressOperator(field, op) {
+  const c = calc[field];
+  const cur = effectiveValue(field);
+
+  if (cur === null) {
+    // If nothing typed but there is an acc, just update operator
+    if (c.acc !== null) c.op = op;
+    return;
+  }
+
+  if (c.acc === null) c.acc = cur;
+  else if (c.op) c.acc = applyOp(c.acc, cur, c.op);
+  else c.acc = cur;
+
+  c.op = op;
+  c.entry = ""; // next digits start a new entry
+  // Show accumulator in field display
+  fieldEl(field).value = formatNumberForModeFromRaw(String(c.acc), fieldMode(field));
+  updateConversionFromField(field);
+}
+function pressEquals(field) {
+  const c = calc[field];
+  const cur = effectiveValue(field);
+
+  if (c.acc === null) {
+    // nothing pending; keep as-is
+    updateConversionFromField(field);
+    return;
+  }
+
+  const b = (cur === null) ? c.acc : cur;
+  const res = c.op ? applyOp(c.acc, b, c.op) : b;
+
+  c.acc = null;
+  c.op = null;
+  c.entry = (field === "CLP") ? clpCanonical(res) : ufCanonical(res);
+
+  setDisplayFromCalc(field);
+  updateConversionFromField(field);
 }
 
 /* ---------- Sync rules (inline status) ---------- */
@@ -571,7 +714,8 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
     }
   }
 
-  await renderHeaderAndCompute();
+  await renderHeader();
+  updateConversionFromField(activeField);
 }
 
 /* ---------- Modal editar UF ---------- */
@@ -584,7 +728,7 @@ function saveManualUF() {
   saveState();
   closeModal();
   toast("UF aplicada manualmente (solo para esta fecha).");
-  renderHeaderAndCompute();
+  renderHeader().then(() => updateConversionFromField(activeField));
 }
 async function resetManualUFToWeb() {
   if (!navigator.onLine) return toast("Offline: no puedo restaurar desde la web.");
@@ -594,7 +738,8 @@ async function resetManualUFToWeb() {
   saveState();
   closeModal();
   toast("UF restaurada desde la web.");
-  await renderHeaderAndCompute();
+  await renderHeader();
+  updateConversionFromField(activeField);
 }
 
 /* ---------- PWA install ---------- */
@@ -626,58 +771,37 @@ async function registerSW() {
 
 /* ---------- Events ---------- */
 function wire() {
+  // Segmented buttons now just choose the active field (and can transfer value if other field has data)
   el("modeUfToClp").addEventListener("click", () => {
-    const old = state.mode;
-    const next = "UF_TO_CLP";
-    if (old === next) return;
-    transferOnModeSwitch(old, next);
-    state.mode = next;
-    saveState();
-    renderMode(state.mode);
-    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, state.mode);
-    computeLive();
+    // If CLP has value, transfer it to UF (like previous behavior)
+    if (effectiveValue("CLP") !== null && currentUF) {
+      const uf = effectiveValue("CLP") / currentUF;
+      calc.UF = { entry: ufCanonical(uf), acc: null, op: null };
+      setDisplayFromCalc("UF");
+      setActive("UF", { fromButton: true });
+      updateConversionFromField("UF");
+      return;
+    }
+    setActive("UF", { fromButton: true });
   });
-
   el("modeClpToUf").addEventListener("click", () => {
-    const old = state.mode;
-    const next = "CLP_TO_UF";
-    if (old === next) return;
-    transferOnModeSwitch(old, next);
-    state.mode = next;
-    saveState();
-    renderMode(state.mode);
-    el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, state.mode);
-    computeLive();
-  });
-
-  el("amountInput").addEventListener("input", () => {
-    reformatInputKeepingCaret(el("amountInput"), state.mode);
-    computeLive();
-  });
-
-  el("amountInput").addEventListener("focus", () => {
-    if (state.mode === "CLP_TO_UF" && !el("amountInput").value) {
-      el("amountInput").value = "$ ";
-      el("amountInput").setSelectionRange(el("amountInput").value.length, el("amountInput").value.length);
+    if (effectiveValue("UF") !== null && currentUF) {
+      const clp = effectiveValue("UF") * currentUF;
+      calc.CLP = { entry: clpCanonical(clp), acc: null, op: null };
+      setDisplayFromCalc("CLP");
+      setActive("CLP", { fromButton: true });
+      updateConversionFromField("CLP");
+      return;
     }
+    setActive("CLP", { fromButton: true });
   });
 
-  el("refreshBtn").addEventListener("click", async () => {
-    if (!navigator.onLine) return toast("Offline: no puedo actualizar.");
-    try {
-      await bootstrapIfEmpty();
-      await ensureOfflineRangeForDate(state.selectedDate || todayLocalISO());
-      await syncFutureHorizon();
-      toast("Actualizado.");
-      await renderHeaderAndCompute();
-    } catch (e) {
-      console.warn(e);
-      toast("No se pudo actualizar.");
-    }
-  });
+  // Tapping the field selects it as active (without opening native keyboard)
+  el(fieldWrapId("UF")).addEventListener("click", () => setActive("UF"));
+  el(fieldWrapId("CLP")).addEventListener("click", () => setActive("CLP"));
 
+  // Date rail
   el("dateRail").addEventListener("scroll", onRailScrollEndSnap, { passive: true });
-
   el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
   el("dateInput").addEventListener("change", async () => {
     const v = el("dateInput").value;
@@ -685,22 +809,57 @@ function wire() {
     await setSelectedDate(v, { userAction: true, fromRail: false });
   });
 
-  el("editUfBtn").addEventListener("click", openModal);
-  el("closeModalBtn").addEventListener("click", closeModal);
-  el("modalBackdrop").addEventListener("click", closeModal);
-  el("saveUfBtn").addEventListener("click", saveManualUF);
-  el("resetUfBtn").addEventListener("click", resetManualUFToWeb);
+  // Refresh
+  el("refreshBtn").addEventListener("click", async () => {
+    if (!navigator.onLine) return toast("Offline: no puedo actualizar.");
+    try {
+      await bootstrapIfEmpty();
+      await ensureOfflineRangeForDate(state.selectedDate || todayLocalISO());
+      await syncFutureHorizon();
+      toast("Actualizado.");
+      await renderHeader();
+      updateConversionFromField(activeField);
+    } catch (e) {
+      console.warn(e);
+      toast("No se pudo actualizar.");
+    }
+  });
 
-  el("alertCloseBtn").addEventListener("click", closeAlert);
-  el("alertOkBtn").addEventListener("click", closeAlert);
-  el("alertBackdrop").addEventListener("click", closeAlert);
+  // Keypad (event delegation)
+  el("keypad").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-k]");
+    if (!btn) return;
+    const k = btn.dataset.k;
 
+    const f = activeField;
+
+    if (k >= "0" && k <= "9") return appendDigit(f, k);
+    if (k === ".") return appendDecimal(f);
+    if (k === "bk") return backspace(f);
+    if (k === "c") return clearAll(f);
+    if (k === "+" || k === "-") return pressOperator(f, k);
+    if (k === "=") return pressEquals(f);
+  });
+
+  // Copy "Convertido" line
   el("copyBtn").addEventListener("click", async () => {
     const txt = el("resultValue").textContent || "";
     if (!txt || txt === "—") return toast("Nada que copiar.");
     try { await navigator.clipboard.writeText(txt); toast("Copiado."); }
     catch { toast("No se pudo copiar (permiso)."); }
   });
+
+  // Manual UF modal
+  el("editUfBtn").addEventListener("click", openModal);
+  el("closeModalBtn").addEventListener("click", closeModal);
+  el("modalBackdrop").addEventListener("click", closeModal);
+  el("saveUfBtn").addEventListener("click", saveManualUF);
+  el("resetUfBtn").addEventListener("click", resetManualUFToWeb);
+
+  // Alert
+  el("alertCloseBtn").addEventListener("click", closeAlert);
+  el("alertOkBtn").addEventListener("click", closeAlert);
+  el("alertBackdrop").addEventListener("click", closeAlert);
 
   window.addEventListener("online", async () => {
     setNetState();
@@ -709,7 +868,8 @@ function wire() {
       await syncFutureHorizon();
       const d = state.selectedDate || todayLocalISO();
       if (!(await idbHasDate(d))) await ensureOfflineRangeForDate(d);
-      await renderHeaderAndCompute();
+      await renderHeader();
+      updateConversionFromField(activeField);
       toast("Online: cache sincronizada.");
     } catch (e) { console.warn(e); }
   });
@@ -731,11 +891,14 @@ function wire() {
 
   el("dateInput").value = initialDate;
 
-  renderMode(state.mode);
   updateMonthLabel();
   buildRail(initialDate);
 
-  el("amountInput").value = formatNumberForModeFromRaw(el("amountInput").value, state.mode);
+  // active field from saved mode
+  activeField = (state.mode === "CLP_TO_UF") ? "CLP" : "UF";
+  renderModeButtons();
+  el(fieldWrapId("UF")).classList.toggle("active", activeField === "UF");
+  el(fieldWrapId("CLP")).classList.toggle("active", activeField === "CLP");
 
   if (navigator.onLine) {
     try {
@@ -746,7 +909,12 @@ function wire() {
   }
 
   await setSelectedDate(initialDate, { userAction: false, fromRail: true });
-  await renderHeaderAndCompute();
+  await renderHeader();
+
+  // start with zeros (empty)
+  clearField("UF");
+  clearField("CLP");
+  refreshConvertedLine();
 
   wire();
   setupInstallUI();
