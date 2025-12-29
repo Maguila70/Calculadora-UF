@@ -418,3 +418,28 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
 input{max-width:100%}
 .railMeta{flex-wrap:nowrap}
 #todayBtn{min-width:56px}
+
+
+/* ---- v11: cache footnote + date header icons only ---- */
+.cacheNote{
+  margin-top:4px;
+  font-size:10px;
+  color: rgba(255,255,255,.46);
+  line-height:1.2;
+}
+.railMeta{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:nowrap;
+}
+#todayBtn{
+  width:38px;
+  padding:6px 0 !important;
+  text-align:center;
+}
+#openCalendarBtn{
+  width:38px;
+  padding:6px 0 !important;
+  text-align:center;
+}

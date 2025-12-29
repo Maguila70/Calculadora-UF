@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v9";
+const STORAGE_KEY = "uf-pocket:state:v11";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -472,7 +472,7 @@ async function renderHeader() {
   el("savedAt").textContent = state.savedAt ? new Date(state.savedAt).toLocaleString("es-CL") : "—";
 
   const mm = await idbGetMinMaxDates();
-  el("cachePill").textContent = (mm.min && mm.max) ? `Cache: ${mm.min} → ${mm.max}` : "Cache: —";
+  el("cacheNote").textContent = (mm.min && mm.max) ? `Cache: ${mm.min} → ${mm.max}` : "Cache: —";
 }
 
 /* ---------- Active field / segmented buttons ---------- */
@@ -692,21 +692,30 @@ async function syncFutureHorizon() {
   if (!navigator.onLine) return;
 
   const today = todayLocalISO();
-  const horizon = addDaysISO(today, 30);
+  const horizonWanted = addDaysISO(today, 30);
+
+  // If we've already discovered the last available future date, don't probe beyond it
+  const knownMax = await idbGetMeta("future_known_max"); // YYYY-MM-DD or null
+  const horizon = knownMax && knownMax < horizonWanted ? knownMax : horizonWanted;
 
   const mm = await idbGetMinMaxDates();
   if (mm.max && mm.max >= horizon) return;
 
   const start = (mm.max && mm.max > today) ? addDaysISO(mm.max, 1) : today;
 
-  // Build list of dates we might need (max 31)
   const dates = [];
-  for (let d = start; d <= horizon; d = addDaysISO(d, 1)) dates.push(d);
-  const total = dates.length || 1;
+  for (let d = start; d <= horizonWanted; d = addDaysISO(d, 1)) {
+    // If knownMax exists, never go beyond it
+    if (knownMax && d > knownMax) break;
+    dates.push(d);
+  }
 
+  const total = dates.length || 1;
   let i = 0;
+
   for (const d of dates) {
     i++;
+
     if (await idbHasDate(d)) continue;
 
     setSyncInline(`(Actualizando ${d.slice(0,4)} ${Math.round((i/total)*100)}%)`);
@@ -714,8 +723,13 @@ async function syncFutureHorizon() {
       const row = await fetchUFForDate(d);
       await idbBulkPutUF([row]);
     } catch (e) {
-      // Es normal que algunos días futuros aún no existan en la API
-      console.warn("future uf missing", d, e);
+      // Si no hay datos para un día futuro, asumimos que desde ese punto NO hay más UF publicada.
+      if (d > today) {
+        const lastOk = addDaysISO(d, -1);
+        await idbSetMeta("future_known_max", lastOk);
+        console.warn("future uf not available, stop probing at", lastOk, e);
+        break;
+      }
     }
   }
 
@@ -786,9 +800,16 @@ async function setSelectedDate(dateISO, { userAction = false, fromRail = false }
         return;
       }
     } else {
-      await ensureOfflineRangeForDate(dateISO);
+      // FUTURE_MAX_GUARD
+      const today = todayLocalISO();
+      const knownMax = await idbGetMeta("future_known_max");
+      if (dateISO > today && knownMax && dateISO > knownMax && !(await idbHasDate(dateISO))) {
+        showAlert("Aún no publicado", `No hay UF disponible en la web para esa fecha. Último día publicado: ${new Date(knownMax+"T00:00:00").toLocaleDateString("es-CL")}.`);
+      } else {
+        await ensureOfflineRangeForDate(dateISO);
+      }
       // ONLY_SYNC_FUTURE_WHEN_TODAY
-      if (dateISO === todayLocalISO()) await syncFutureHorizon();
+      if (dateISO === today) await syncFutureHorizon();
     }
   }
 
@@ -843,7 +864,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=9"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=11"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -974,7 +995,7 @@ function wire() {
   el("dateInput").min = LIMITS.min;
   el("dateInput").max = LIMITS.max;
 
-  const initialDate = clampISO(state.selectedDate || todayLocalISO());
+  const initialDate = clampISO(todayLocalISO());
   state.selectedDate = initialDate;
   saveState();
 
