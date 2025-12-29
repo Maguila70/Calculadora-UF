@@ -524,8 +524,7 @@ input{max-width:100%}
   flex: 0 0 auto;
   margin-left: auto;
 }
-.field.small input{
-  font-size: 16px;
+.field.small input{  font-size: 20px;
   padding: 11px 12px;
 }
 #clpInput, #ufInput{
@@ -541,3 +540,7 @@ input{max-width:100%}
   letter-spacing: .02em;
 }
 .microRow{gap:8px; flex-wrap:nowrap;}
+
+
+/* ---- v25: autosize-friendly ---- */
+#ufInput,#clpInput{ font-variant-numeric: tabular-nums; }

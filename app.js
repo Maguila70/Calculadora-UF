@@ -1,5 +1,5 @@
 /* UF Pocket – dual fields + mini keypad + offline UF cache (IndexedDB) + inline sync status */
-const STORAGE_KEY = "uf-pocket:state:v24";
+const STORAGE_KEY = "uf-pocket:state:v25";
 const DB_NAME = "uf-pocket-db";
 const DB_VER = 1;
 
@@ -587,11 +587,37 @@ function getDisplayNumber(field) {
   if (c.acc !== null && Number.isFinite(c.acc)) return String(c.acc);
   return "";
 }
+
+const BASE_FIELD_FONT_PX = 20;
+const MIN_FIELD_FONT_PX  = 13;
+
+function autosizeFieldInput(input, basePx = BASE_FIELD_FONT_PX, minPx = MIN_FIELD_FONT_PX) {
+  if (!input) return;
+  // reset to base first (so it grows back when text is shorter)
+  input.style.fontSize = basePx + "px";
+  // For empty values, keep base
+  if (!input.value) return;
+
+  // Shrink until it fits
+  let size = basePx;
+  // A small tolerance helps avoid oscillation due to subpixel rounding
+  const tol = 2;
+  for (let i = 0; i < 30; i++) {
+    if (size <= minPx) break;
+    if (input.scrollWidth <= input.clientWidth + tol) break;
+    size -= 1;
+    input.style.fontSize = size + "px";
+  }
+}
+
 function setDisplayFromCalc(field) {
   const raw = getDisplayNumber(field);
   const formatted = raw ? formatNumberForModeFromRaw(raw, fieldMode(field)) : "";
   fieldEl(field).value = formatted;
+  autosizeFieldInput(fieldEl(field));
+  autosizeFieldInput(fieldEl(field));
 }
+
 
 function refreshConvertedLine() {
   const from = activeField;
@@ -606,6 +632,7 @@ function clearField(field) {
   calc[field].acc = null;
   calc[field].op = null;
   fieldEl(field).value = "";
+  autosizeFieldInput(fieldEl(field));
 }
 
 function effectiveValue(field) {
@@ -692,6 +719,7 @@ function backspace(field) {
 function clearAll(field) {
   calc[field] = { entry: "", acc: null, op: null };
   fieldEl(field).value = "";
+  autosizeFieldInput(fieldEl(field));
   updateConversionFromField(field);
 }
 
@@ -718,6 +746,7 @@ function pressOperator(field, op) {
   c.entry = ""; // next digits start a new entry
   // Show accumulator in field display
   fieldEl(field).value = formatNumberForModeFromRaw(String(c.acc), fieldMode(field));
+  autosizeFieldInput(fieldEl(field));
   updateConversionFromField(field);
 }
 function pressEquals(field) {
@@ -951,7 +980,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js?v=24"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=25"); }
   catch (e) { console.warn("SW error", e); }
 }
 
