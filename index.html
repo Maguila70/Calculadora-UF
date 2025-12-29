@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b1624" />
-  <meta name="description" content="Calculadora UF ⇄ CLP con modo offline y botón de instalación (PWA)." />
+  <meta name="description" content="Calculadora UF ⇄ CLP con selector de fecha, modo offline y botón de instalación (PWA)." />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -23,7 +23,7 @@
       <div class="logo" aria-hidden="true">UF</div>
       <div class="titles">
         <div class="title">UF Pocket</div>
-        <div class="subtitle">UF ⇄ CLP • rápido • offline</div>
+        <div class="subtitle">UF ⇄ CLP • fecha • offline</div>
       </div>
     </div>
     <button id="installBtn" class="btn btn-ghost hidden" type="button" aria-label="Instalar app">
@@ -35,13 +35,13 @@
     <section class="card hero">
       <div class="hero-row">
         <div>
-          <div class="kicker">Valor UF</div>
+          <div class="kicker">UF del día</div>
           <div class="uf-value">
             <span id="ufValue">—</span>
             <span class="uf-unit">CLP</span>
           </div>
           <div class="meta">
-            <span id="ufDate">—</span>
+            <span id="ufDateLabel">Fecha: —</span>
             <span class="dot">•</span>
             <span id="netState">—</span>
           </div>
@@ -54,6 +54,19 @@
           <button id="editUfBtn" class="btn btn-ghost" type="button">
             <span class="btn-ic">✎</span> Editar
           </button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="datebar">
+        <div class="datefield">
+          <div class="label">Fecha</div>
+          <input id="dateInput" type="date" />
+        </div>
+        <div class="date-actions">
+          <button id="todayBtn" class="btn btn-ghost btn-small" type="button">Hoy</button>
+          <div class="pill" id="cachePill">Cache: —</div>
         </div>
       </div>
 
@@ -78,21 +91,19 @@
       </div>
 
       <div class="hint" id="hint">
-        Tip: funciona offline usando el último valor guardado. Si no puede actualizar, edita el valor UF manualmente.
+        Tip: al estar online sincroniza y guarda valores para usar sin conexión.
       </div>
     </section>
 
     <section class="card mini">
       <div class="mini-row">
         <div class="mini-item">
-          <div class="label">Guardado</div>
+          <div class="label">Última sincronización</div>
           <div class="value-sm" id="savedAt">—</div>
         </div>
         <div class="mini-item">
           <div class="label">Fuente</div>
-          <div class="value-sm">
-            mindicador.cl
-          </div>
+          <div class="value-sm">mindicador.cl</div>
         </div>
       </div>
     </section>
@@ -113,7 +124,7 @@
       <div class="modal-body">
         <label class="field">
           <span class="label">UF (en pesos)</span>
-          <input id="ufManualInput" inputmode="decimal" autocomplete="off" placeholder="Ej: 39716,44" />
+          <input id="ufManualInput" inputmode="decimal" autocomplete="off" placeholder="Ej: 39.716,44" />
           <div class="help">Puedes usar coma o punto. Se guardará localmente en el teléfono.</div>
         </label>
         <label class="field">
@@ -123,6 +134,23 @@
         <div class="modal-actions">
           <button id="saveUfBtn" class="btn" type="button">Guardar</button>
           <button id="resetUfBtn" class="btn btn-ghost" type="button">Restaurar desde web</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal aviso -->
+  <div id="alertModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="alertTitle">
+    <div class="modal-backdrop" id="alertBackdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="modal-title" id="alertTitle">Aviso</div>
+        <button id="alertCloseBtn" class="btn btn-small btn-ghost" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="alertText" class="alertText">—</div>
+        <div class="modal-actions">
+          <button id="alertOkBtn" class="btn" type="button">OK</button>
         </div>
       </div>
     </div>

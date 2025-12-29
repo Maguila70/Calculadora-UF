@@ -1,7 +1,7 @@
 {
   "name": "UF Pocket",
   "short_name": "UF Pocket",
-  "description": "Calculadora UF ⇄ CLP con modo offline.",
+  "description": "Calculadora UF ⇄ CLP con selector de fecha y modo offline.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -2,22 +2,17 @@
 :root{
   --bg0:#06101c;
   --bg1:#0b1624;
-  --card:rgba(255,255,255,.08);
-  --card2:rgba(255,255,255,.06);
-  --stroke:rgba(255,255,255,.14);
-  --stroke2:rgba(255,255,255,.10);
   --text:rgba(255,255,255,.92);
   --muted:rgba(255,255,255,.64);
   --muted2:rgba(255,255,255,.52);
-  --good:#7ff0c8;
-  --warn:#ffd27d;
+  --stroke:rgba(255,255,255,.14);
+  --stroke2:rgba(255,255,255,.10);
   --shadow: 0 20px 60px rgba(0,0,0,.45);
   --radius: 20px;
   --radius2: 14px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
 }
-
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
@@ -29,7 +24,6 @@ body{
               linear-gradient(180deg, var(--bg0), var(--bg1));
   overflow-x:hidden;
 }
-
 .bg{position:fixed; inset:0; z-index:-1; pointer-events:none;}
 .blob{
   position:absolute;
@@ -37,7 +31,6 @@ body{
   filter: blur(45px);
   opacity:.42;
   border-radius: 999px;
-  transform: translate3d(0,0,0);
   animation: float 10s ease-in-out infinite;
 }
 .b1{left:-120px; top:-110px; background: radial-gradient(circle at 30% 30%, #3ac6ff, transparent 60%);}
@@ -52,7 +45,6 @@ body{
   opacity:.18;
   mix-blend-mode: overlay;
 }
-
 .topbar{
   display:flex;
   align-items:center;
@@ -62,7 +54,6 @@ body{
   max-width: 980px;
   margin: 0 auto;
 }
-
 .brand{display:flex; align-items:center; gap:12px;}
 .logo{
   width:44px; height:44px;
@@ -76,7 +67,6 @@ body{
 }
 .titles .title{font-weight:800; letter-spacing:-.02em; font-size:18px; line-height:1.1}
 .titles .subtitle{font-size:12px; color:var(--muted); margin-top:2px}
-
 .wrap{max-width: 980px; margin: 0 auto; padding: 8px 16px 34px;}
 .card{
   border-radius: var(--radius);
@@ -94,7 +84,6 @@ body{
 .uf-unit{color:var(--muted); font-size:14px; font-family:var(--mono); padding-bottom:6px}
 .meta{margin-top:6px; color:var(--muted2); font-size:13px; display:flex; align-items:center; gap:8px}
 .dot{opacity:.6}
-
 .actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
 .btn{
   border: 1px solid var(--stroke);
@@ -113,11 +102,8 @@ body{
 .btn-ghost{background: rgba(0,0,0,.10); border-color: rgba(255,255,255,.10)}
 .btn-small{padding:8px 10px; border-radius: 12px; font-weight:700; font-size:13px}
 .btn .btn-ic{margin-right:8px; opacity:.9}
-
 .hidden{display:none !important;}
-
 .divider{height:1px; background: rgba(255,255,255,.10); margin: 16px 0}
-
 .switch{
   display:flex;
   background: rgba(0,0,0,.18);
@@ -141,7 +127,6 @@ body{
   background: rgba(255,255,255,.12);
   box-shadow: 0 10px 30px rgba(0,0,0,.22);
 }
-
 .calc{display:grid; grid-template-columns: 1.25fr .9fr; gap:14px; margin-top:16px}
 @media (max-width: 720px){
   .calc{grid-template-columns: 1fr}
@@ -160,7 +145,6 @@ input{
   outline:none;
 }
 input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,240,200,.10)}
-
 .result{
   border-radius: var(--radius2);
   background: rgba(0,0,0,.16);
@@ -177,12 +161,10 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
   font-family: var(--mono);
 }
 .hint{margin-top:14px; font-size:13px; color: var(--muted); line-height:1.35}
-
 .mini{margin-top:14px; padding: 14px 18px; background: rgba(255,255,255,.06)}
 .mini-row{display:flex; gap:16px; flex-wrap:wrap; justify-content:space-between}
 .mini-item .value-sm{font-family: var(--mono); font-weight: 800}
 .mini-item .label{margin-bottom:6px}
-
 .footer{
   margin-top: 14px;
   padding: 12px 6px 0;
@@ -190,7 +172,6 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
   font-size: 12px;
   text-align:center;
 }
-
 /* Modal */
 .modal{position:fixed; inset:0; display:grid; place-items:center; z-index:10}
 .modal-backdrop{position:absolute; inset:0; background: rgba(0,0,0,.55)}
@@ -214,3 +195,23 @@ input:focus{border-color: rgba(127,240,200,.45); box-shadow: 0 0 0 4px rgba(127,
 .modal-body{padding: 14px}
 .help{font-size:12px; color: var(--muted2); margin-top:6px}
 .modal-actions{display:flex; gap:10px; justify-content:flex-end; margin-top: 12px; flex-wrap:wrap}
+/* Date selector row */
+.datebar{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  flex-wrap:wrap;
+}
+.datefield{min-width: 220px;}
+.date-actions{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.pill{
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.16);
+  color: rgba(255,255,255,.70);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.alertText{color: rgba(255,255,255,.82); line-height:1.4}
