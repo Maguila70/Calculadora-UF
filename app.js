@@ -765,7 +765,7 @@ function setupInstallUI() {
 /* ---------- SW ---------- */
 async function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  try { await navigator.serviceWorker.register("./sw.js"); }
+  try { await navigator.serviceWorker.register("./sw.js?v=8"); }
   catch (e) { console.warn("SW error", e); }
 }
 
@@ -802,12 +802,12 @@ function wire() {
 
   // Date rail
   el("dateRail").addEventListener("scroll", onRailScrollEndSnap, { passive: true });
-  el("todayBtn").addEventListener("click", async () => {
+    el("todayBtn").addEventListener("click", async () => {
     const t = todayLocalISO();
     await setSelectedDate(t, { userAction: true, fromRail: false });
   });
 
-  el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
+el("openCalendarBtn").addEventListener("click", () => el("dateInput").showPicker?.() || el("dateInput").click());
   el("dateInput").addEventListener("change", async () => {
     const v = el("dateInput").value;
     if (!v) return;
