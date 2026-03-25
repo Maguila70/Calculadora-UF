@@ -1,0 +1,31 @@
+name: ha_tablet_dashboard
+description: Home Assistant Tablet Dashboard - A Flutter dashboard optimized for wall-mounted tablets.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.1
+  web_socket_channel: ^2.4.0
+  shared_preferences: ^2.2.2
+  fl_chart: ^0.66.0
+  cached_network_image: ^3.3.0
+  google_fonts: ^6.1.0
+  flutter_svg: ^2.0.9
+  intl: ^0.19.0
+  wakelock_plus: ^1.1.4
+  connectivity_plus: ^5.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
